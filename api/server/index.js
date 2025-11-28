@@ -27,6 +27,7 @@ const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
 const noIndex = require('./middleware/noIndex');
+const externalUserIdMiddleware = require('./middleware/externalUserId');
 const { seedDatabase } = require('~/models');
 const routes = require('./routes');
 
@@ -84,6 +85,7 @@ const startServer = async () => {
   app.use(mongoSanitize());
   app.use(cors());
   app.use(cookieParser());
+  app.use(externalUserIdMiddleware);
 
   if (!isEnabled(DISABLE_COMPRESSION)) {
     app.use(compression());
@@ -94,6 +96,12 @@ const startServer = async () => {
   app.use(staticCache(appConfig.paths.dist));
   app.use(staticCache(appConfig.paths.fonts));
   app.use(staticCache(appConfig.paths.assets));
+  if (fs.existsSync(appConfig.paths.customAssets)) {
+    app.use(
+      '/librechat-custom',
+      staticCache(appConfig.paths.customAssets, { skipGzipScan: true, noCache: true }),
+    );
+  }
 
   if (!ALLOW_SOCIAL_LOGIN) {
     console.warn('Social logins are disabled. Set ALLOW_SOCIAL_LOGIN=true to enable them.');

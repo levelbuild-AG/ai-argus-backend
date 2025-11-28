@@ -1,5 +1,5 @@
 import { useForm } from 'react-hook-form';
-import React, { useContext, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { ThemeContext, Spinner, Button, isDark } from '@librechat/client';
 import { useNavigate, useOutletContext, useLocation } from 'react-router-dom';
@@ -33,6 +33,22 @@ const Registration: React.FC = () => {
   const queryParams = new URLSearchParams(location.search);
   const token = queryParams.get('token');
   const validTheme = isDark(theme) ? 'dark' : 'light';
+  const allowedDomains = useMemo(
+    () =>
+      (startupConfig?.allowedDomains || [])
+        .map((domain) => domain?.trim().toLowerCase())
+        .filter((domain): domain is string => Boolean(domain)),
+    [startupConfig?.allowedDomains],
+  );
+  const allowedEmailDisplay = allowedDomains.map((domain) => `@${domain}`).join(', ');
+  const validateWorkEmail = (value: string) => {
+    if (!allowedDomains.length) {
+      return true;
+    }
+    const normalized = value?.toLowerCase() ?? '';
+    const matches = allowedDomains.some((domain) => normalized.endsWith(`@${domain}`));
+    return matches || `Please use your work email (${allowedEmailDisplay}).`;
+  };
 
   // only require captcha if we have a siteKey
   const requireCaptcha = Boolean(startupConfig?.turnstile?.siteKey);
@@ -92,6 +108,11 @@ const Registration: React.FC = () => {
         <span role="alert" className="mt-1 text-sm text-red-500">
           {String(errors[id]?.message) ?? ''}
         </span>
+      )}
+      {!errors[id] && id === 'email' && allowedDomains.length > 0 && (
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Sign-ups are limited to {allowedEmailDisplay} addresses.
+        </p>
       )}
     </div>
   );
@@ -162,6 +183,7 @@ const Registration: React.FC = () => {
                 value: /\S+@\S+\.\S+/,
                 message: localize('com_auth_email_pattern'),
               },
+              validate: validateWorkEmail,
             })}
             {renderInput('password', 'com_auth_password', 'password', {
               required: localize('com_auth_password_required'),

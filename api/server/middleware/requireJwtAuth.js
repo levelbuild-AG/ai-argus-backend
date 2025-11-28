@@ -7,6 +7,9 @@ const { isEnabled } = require('@librechat/api');
  * Switches between JWT and OpenID authentication based on cookies and environment settings
  */
 const requireJwtAuth = (req, res, next) => {
+  if (req.user) {
+    return next();
+  }
   // Check if token provider is specified in cookies
   const cookieHeader = req.headers.cookie;
   const tokenProvider = cookieHeader ? cookies.parse(cookieHeader).token_provider : null;

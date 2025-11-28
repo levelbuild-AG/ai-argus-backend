@@ -141,6 +141,11 @@ const userSchema = new Schema<IUser>(
       },
       default: {},
     },
+    platformUserId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     /** Field for external source identification (for consistency with TPrincipal schema) */
     idOnTheSource: {
       type: String,

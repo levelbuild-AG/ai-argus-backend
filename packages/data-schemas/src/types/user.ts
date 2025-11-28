@@ -36,6 +36,7 @@ export interface IUser extends Document {
   };
   createdAt?: Date;
   updatedAt?: Date;
+  platformUserId?: string | null;
   /** Field for external source identification (for consistency with TPrincipal schema) */
   idOnTheSource?: string;
 }
@@ -90,6 +91,7 @@ export interface UserFilterOptions extends CursorPaginationParams {
   githubId?: string;
   discordId?: string;
   appleId?: string;
+  platformUserId?: string;
   // Date filters
   createdAfter?: string;
   createdBefore?: string;

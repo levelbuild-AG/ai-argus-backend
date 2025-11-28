@@ -65,6 +65,16 @@ const refreshController = async (req, res) => {
     ? cookies.parse(req.headers.cookie).token_provider
     : null;
   if (!refreshToken) {
+    if (req.user?.id || req.user?._id) {
+      try {
+        const userId = req.user.id || req.user._id;
+        const token = await setAuthTokens(userId, res);
+        return res.status(200).send({ token, user: req.user });
+      } catch (error) {
+        logger.error('[refreshController] Failed to mint tokens for external user', error);
+        return res.status(500).send('Failed to refresh session');
+      }
+    }
     return res.status(200).send('Refresh token not provided');
   }
   if (token_provider === 'openid' && isEnabled(process.env.OPENID_REUSE_TOKENS) === true) {

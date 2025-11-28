@@ -25,6 +25,8 @@ function AuthLayout({
   error: TranslationKeys | null;
 }) {
   const localize = useLocalize();
+  const appTitle = startupConfig?.appTitle ?? 'levelbuild Argus Chat';
+  const logoSrc = '/librechat-custom/logos/levelbuild_logo_square_small.png';
 
   const hasStartupConfigError = startupConfigError !== null && startupConfigError !== undefined;
   const DisplayError = () => {
@@ -60,12 +62,15 @@ function AuthLayout({
     <div className="relative flex min-h-screen flex-col bg-white dark:bg-gray-900">
       <Banner />
       <BlinkAnimation active={isFetching}>
-        <div className="mt-6 h-10 w-full bg-cover">
+        <div className="mt-6 flex w-full flex-col items-center gap-2">
           <img
-            src="assets/logo.svg"
-            className="h-full w-full object-contain"
-            alt={localize('com_ui_logo', { 0: startupConfig?.appTitle ?? 'LibreChat' })}
+            src={logoSrc}
+            className="h-12 object-contain"
+            alt={localize('com_ui_logo', { 0: appTitle })}
           />
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+            Secure AI workspace for your team
+          </p>
         </div>
       </BlinkAnimation>
       <DisplayError />

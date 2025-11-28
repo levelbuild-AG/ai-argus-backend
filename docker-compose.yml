@@ -20,6 +20,7 @@ services:
       - MEILI_HOST=http://meilisearch:7700
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
+      - GOOGLE_SERVICE_KEY_FILE=/config/gcp/auth.json
     volumes:
       - type: bind
         source: ./.env
@@ -27,6 +28,7 @@ services:
       - ./images:/app/client/public/images
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./config/gcp/auth.json:/config/gcp/auth.json:ro
   mongodb:
     container_name: chat-mongodb
     image: mongo
