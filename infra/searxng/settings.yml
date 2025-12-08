@@ -1,0 +1,37 @@
+# This file layers minimal overrides on top of the upstream defaults.
+# Keep `use_default_settings: true` when upgrading to avoid schema drift.
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "LibreChat SearXNG"
+  search_on_category_select: true
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "CHANGE_ME_TO_RANDOM_LONG_STRING"
+
+search:
+  safe_search: 0
+  autocomplete: "duckduckgo"
+  formats:
+    - html
+    - json
+
+engines:
+  - name: google custom search
+    engine: google_cs
+    shortcut: gcs
+    api_key: "AIzaSyDacsMuc2EMdrsp1p3GzuhxQZOchmt96pU"
+    cx: "27a6676b622c04839"
+    categories:
+      - general
+      - web
+      - news
+    timeout: 3.0
+    disabled: false
+
+ui:
+  default_theme: simple
