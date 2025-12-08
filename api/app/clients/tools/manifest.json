@@ -131,6 +131,34 @@
     ]
   },
   {
+    "name": "Google Imagen",
+    "pluginKey": "google-imagen",
+    "description": "Generate images from text using Google Vertex AI Imagen 3 and Imagen 4 models.",
+    "icon": "https://www.gstatic.com/aihub/vertex/img/vertex-logo.png",
+    "authConfig": [
+      {
+        "authField": "GOOGLE_SERVICE_KEY_FILE",
+        "label": "Service Account Key File",
+        "description": "Path to the Google Cloud service account JSON used for Vertex AI."
+      },
+      {
+        "authField": "GOOGLE_CLOUD_PROJECT",
+        "label": "Google Cloud Project ID",
+        "description": "Project used for Vertex AI Imagen."
+      },
+      {
+        "authField": "GOOGLE_VERTEX_LOCATION",
+        "label": "Vertex AI Location",
+        "description": "Region for Vertex AI (e.g. europe-west4)."
+      },
+      {
+        "authField": "GOOGLE_IMAGEN_MODEL",
+        "label": "Default Imagen model version",
+        "description": "Optional override, e.g. imagen-4.0-generate-001. If empty, defaults will be used."
+      }
+    ]
+  },
+  {
     "name": "Azure AI Search",
     "pluginKey": "azure-ai-search",
     "description": "Use Azure AI Search to find information",

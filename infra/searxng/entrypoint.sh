@@ -4,6 +4,8 @@ set -euo pipefail
 CUSTOM_DIR=/custom-searxng
 TEMPLATE_FILE="$CUSTOM_DIR/settings.yml"
 TARGET_FILE=/etc/searxng/settings.yml
+ENGINE_SRC_DIR="$CUSTOM_DIR/engines"
+ENGINE_TARGET_DIR=/usr/local/searxng/searx/engines
 
 render_template() {
   python3 <<'PY'
@@ -27,10 +29,24 @@ target_path.write_text(rendered, encoding='utf-8')
 PY
 }
 
+install_custom_engines() {
+  if [ ! -d "$ENGINE_SRC_DIR" ]; then
+    return
+  fi
+
+  for engine_file in "$ENGINE_SRC_DIR"/*.py; do
+    [ -e "$engine_file" ] || continue
+    cp "$engine_file" "$ENGINE_TARGET_DIR/$(basename "$engine_file")"
+  done
+}
+
 if [ -f "$TEMPLATE_FILE" ]; then
   export SEARXNG_TEMPLATE_FILE="$TEMPLATE_FILE"
   export SEARXNG_TARGET_FILE="$TARGET_FILE"
   render_template
 fi
 
+install_custom_engines
+
 exec /usr/local/searxng/entrypoint.sh "$@"
+
