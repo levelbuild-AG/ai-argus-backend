@@ -26,7 +26,7 @@ function AuthLayout({
 }) {
   const localize = useLocalize();
   const appTitle = startupConfig?.appTitle ?? 'levelbuild Argus Chat';
-  const logoSrc = '/librechat-custom/logos/levelbuild_logo_square_small.png';
+  const logoSrc = '/librechat-custom/logos/levelbuild_argus_aurora_banner.png';
 
   const hasStartupConfigError = startupConfigError !== null && startupConfigError !== undefined;
   const DisplayError = () => {
@@ -65,11 +65,11 @@ function AuthLayout({
         <div className="mt-6 flex w-full flex-col items-center gap-2">
           <img
             src={logoSrc}
-            className="h-12 object-contain"
+            className="h-24 object-contain"
             alt={localize('com_ui_logo', { 0: appTitle })}
           />
           <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            Secure AI workspace for your team
+            level<b>build</b> Argus – Your AI Assistant for Work
           </p>
         </div>
       </BlinkAnimation>
