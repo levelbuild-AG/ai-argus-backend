@@ -14,6 +14,8 @@ services:
     user: "${UID}:${GID}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - argus-net
     environment:
       - HOST=0.0.0.0
       - MONGO_URI=mongodb://mongodb:27017/LibreChat
@@ -37,6 +39,8 @@ services:
     volumes:
       - ./data-node:/data/db
     command: mongod --noauth
+    networks:
+      - argus-net
   meilisearch:
     container_name: chat-meilisearch
     image: getmeili/meilisearch:v1.12.3
@@ -48,6 +52,8 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
     volumes:
       - ./meili_data_v1.12:/meili_data
+    networks:
+      - argus-net
   vectordb:
     container_name: vectordb
     image: pgvector/pgvector:0.8.0-pg15-trixie
@@ -58,6 +64,8 @@ services:
     restart: always
     volumes:
       - pgdata2:/var/lib/postgresql/data
+    networks:
+      - argus-net
   rag_api:
     container_name: rag_api
     image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
@@ -69,6 +77,30 @@ services:
       - vectordb
     env_file:
       - .env
+    networks:
+      - argus-net
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # optional, for debugging via browser
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_SECRET_KEY=CHANGE_ME_TO_RANDOM_LONG_STRING
+      - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+    entrypoint:
+      - /custom-searxng/entrypoint.sh
+    volumes:
+      - ./infra/searxng:/custom-searxng:ro
+    networks:
+      - argus-net
 
 volumes:
   pgdata2:
+
+networks:
+  argus-net:
+    external: true
+    name: argus-net
