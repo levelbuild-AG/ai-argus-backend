@@ -1,0 +1,237 @@
+openapi: 3.0.3
+info:
+  title: LibreChat Code Interpreter API (Inferred)
+  version: 0.1.0
+  description: |
+    This is an inferred OpenAPI specification for the LibreChat Code
+    Interpreter API based on publicly available documentation.  It
+    defines a minimal subset of the official API sufficient for
+    self‑hosting a Python and Bash code execution service.  Use this
+    document as a reference when integrating with LibreChat or other
+    clients.
+servers:
+  - url: https://code.example.com
+    description: Production server
+  - url: http://localhost:8080
+    description: Local development
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    SessionCreateRequest:
+      type: object
+      properties:
+        language:
+          type: string
+          description: Primary language for the session
+          enum: [python, bash]
+          default: python
+      required: []
+    SessionInfo:
+      type: object
+      properties:
+        session_id:
+          type: string
+        language:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        files:
+          type: array
+          items:
+            type: string
+      required: [session_id, language, created_at, files]
+    ExecuteRequest:
+      type: object
+      properties:
+        language:
+          type: string
+          description: Optional language override
+          enum: [python, bash]
+        code:
+          type: string
+        stdin:
+          type: string
+      required: [code]
+    ExecuteResponse:
+      type: object
+      properties:
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        duration_ms:
+          type: integer
+        files:
+          type: array
+          items:
+            type: string
+      required: [stdout, stderr, exit_code, duration_ms, files]
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /v1/sessions:
+    post:
+      summary: Create a new session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+      responses:
+        '200':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionInfo'
+      security:
+        - ApiKeyAuth: []
+  /v1/sessions/{session_id}:
+    get:
+      summary: Get session metadata
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionInfo'
+        '404':
+          description: Not found
+      security:
+        - ApiKeyAuth: []
+    delete:
+      summary: Delete a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Not found
+      security:
+        - ApiKeyAuth: []
+  /v1/sessions/{session_id}/execute:
+    post:
+      summary: Execute code in a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+        '400':
+          description: Bad request
+        '404':
+          description: Session not found
+      security:
+        - ApiKeyAuth: []
+  /v1/sessions/{session_id}/files:
+    post:
+      summary: Upload files to a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Files uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: string
+        '404':
+          description: Session not found
+      security:
+        - ApiKeyAuth: []
+  /v1/sessions/{session_id}/files/{file_path}:
+    get:
+      summary: Download a file from a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: file_path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File contents
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File or session not found
+      security:
+        - ApiKeyAuth: []

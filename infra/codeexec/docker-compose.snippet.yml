@@ -1,0 +1,34 @@
+services:
+  codeexec:
+    build: ./infra/codeexec
+    container_name: codeexec
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      # Port inside the container; can be overridden via .env
+      - PORT=8080
+      # Secret API key used by LibreChat to authenticate requests
+      - CODEEXEC_API_KEY=${LIBRECHAT_CODE_API_KEY}
+      # Storage backend for session files.  Use "local" for local disk or "gcs" for Google Cloud Storage.
+      - CODEEXEC_STORAGE_BACKEND=local
+      # Path on the container's filesystem where session directories are stored
+      - CODEEXEC_STORAGE_PATH=/tmp/codeexec
+      # Maximum memory (in MB) available to a single code execution
+      - CODEEXEC_MAX_MEMORY_MB=2048
+      # Maximum CPU time (in seconds) available to a single code execution
+      - CODEEXEC_MAX_CPU_SECS=120
+      # Maximum wall‑clock duration (in seconds) per code execution
+      - CODEEXEC_MAX_EXECUTION_SECONDS=120
+      # Disallow network access from executed code
+      - CODEEXEC_DISABLE_NETWORK=true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - codeexec-tmp:/tmp/codeexec
+
+volumes:
+  codeexec-tmp:

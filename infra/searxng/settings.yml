@@ -1,7 +1,10 @@
 # This file layers minimal overrides on top of the upstream defaults.
 # Keep `use_default_settings: true` when upgrading to avoid schema drift.
 
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - google custom search
 
 general:
   debug: false
@@ -24,8 +27,8 @@ engines:
   - name: google custom search
     engine: google_cs
     shortcut: gcs
-    api_key: !env_var GOOGLE_CSE_API_KEY
-    cx: !env_var GOOGLE_CSE_CX
+    api_key: !env_var GOOGLE_SEARCH_API_KEY
+    cx: !env_var GOOGLE_CSE_ID
     categories:
       - general
       - web
