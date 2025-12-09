@@ -1,0 +1,18 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: librechat-custom:latest
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+  rag_api:
+    image: ghcr.io/danny-avila/librechat-rag-api-dev:latest
+    volumes:
+      - ./config/gcp/auth.json:/config/gcp/auth.json:ro
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /config/gcp/auth.json  # added for rag api use
+      GOOGLE_CLOUD_PROJECT: gcpxaixlevelbuildxseibert
+      GOOGLE_VERTEX_LOCATION: europe-west4
