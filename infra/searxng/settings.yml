@@ -27,8 +27,8 @@ engines:
   - name: google custom search
     engine: google_cs
     shortcut: gcs
-    api_key: !env_var GOOGLE_SEARCH_API_KEY
-    cx: !env_var GOOGLE_CSE_ID
+    api_key: ${GOOGLE_SEARCH_API_KEY}
+    cx: ${GOOGLE_CSE_ID}
     categories:
       - general
       - web

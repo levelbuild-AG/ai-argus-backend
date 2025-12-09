@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env sh
 set -euo pipefail
 
 CUSTOM_DIR=/custom-searxng
