@@ -96,9 +96,34 @@ services:
       - ./infra/searxng:/custom-searxng:ro
     networks:
       - argus-net
+  codeexec:
+    build: ./infra/codeexec
+    container_name: codeexec
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - PORT=8080
+      - CODEEXEC_API_KEY=${LIBRECHAT_CODE_API_KEY}
+      - CODEEXEC_STORAGE_BACKEND=local
+      - CODEEXEC_STORAGE_PATH=/tmp/codeexec
+      - CODEEXEC_MAX_MEMORY_MB=2048
+      - CODEEXEC_MAX_CPU_SECS=120
+      - CODEEXEC_MAX_EXECUTION_SECONDS=120
+      - CODEEXEC_DISABLE_NETWORK=true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - codeexec-tmp:/tmp/codeexec
+    networks:
+      - argus-net
 
 volumes:
   pgdata2:
+  codeexec-tmp:
 
 networks:
   argus-net:
