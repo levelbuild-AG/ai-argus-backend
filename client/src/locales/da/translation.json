@@ -4,7 +4,7 @@
   "com_a11y_ai_composing": "AI'en komponerer stadig.",
   "com_a11y_end": "AI'en er færdig med sit svar.",
   "com_a11y_start": "AI'en er begyndt at svare.",
-  "com_agents_by_librechat": "af LibreChat",
+  "com_agents_by_librechat": "af levelbuild",
   "com_agents_code_interpreter": "Når den er aktiveret, kan din agent bruge LibreChat Code Interpreter API til at køre genereret kode, herunder filbehandling, sikkert. Kræver en gyldig API-nøgle.",
   "com_agents_code_interpreter_title": "Kodefortolker API",
   "com_agents_create_error": "Der opstod en fejl ved oprettelsen af din agent.",

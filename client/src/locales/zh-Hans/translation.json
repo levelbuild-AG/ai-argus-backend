@@ -8,7 +8,7 @@
   "com_agents_all": "全部智能体",
   "com_agents_all_category": "全部",
   "com_agents_all_description": "浏览所有类别中的全部共享智能体",
-  "com_agents_by_librechat": "由 LibreChat 提供",
+  "com_agents_by_librechat": "由 levelbuild 提供",
   "com_agents_category_aftersales": "售后",
   "com_agents_category_aftersales_description": "专注于售后支持、维护与客户服务的专用智能体",
   "com_agents_category_empty": "在 {{category}} 类别中未找到智能体",

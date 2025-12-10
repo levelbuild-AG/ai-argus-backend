@@ -11,6 +11,8 @@ both as a Docker service and on Google Cloud Run.
 from __future__ import annotations
 
 import json
+import logging
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -26,9 +28,35 @@ from ..models import ExecuteRequest, ExecuteResponse, FileUploadResponse, Sessio
 from ..storage import GCSStorageBackend, LocalStorageBackend, StorageBackend
 
 
+logger = logging.getLogger("codeexec")
+
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("[codeexec] %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+logger.setLevel(logging.INFO)
+
+
 config = Config.from_env()
 
+logger.info(
+    "Loaded config: storage_backend=%s, storage_path=%s, allowed_langs=%s, max_exec=%s",
+    config.storage_backend,
+    config.storage_path,
+    config.allowed_langs,
+    config.max_execution_seconds,
+)
+
 # Determine storage backend based on config
+TEMP_DIR_BASE = Path(config.storage_path)
+TEMP_DIR_BASE.mkdir(parents=True, exist_ok=True)
+try:
+    TEMP_DIR_BASE.chmod(0o777)
+except PermissionError:
+    logger.warning("Unable to chmod temp dir %s; continuing", TEMP_DIR_BASE)
+
 if config.storage_backend == "gcs":
     if config.gcs_bucket is None:
         raise RuntimeError("CODEEXEC_GCS_BUCKET must be set when using GCS storage backend")
@@ -50,16 +78,78 @@ app = FastAPI(title="Code Execution Service", version="0.1.0")
 @app.middleware("http")
 async def authenticate(request, call_next):
     """Middleware to enforce API key authentication on all requests."""
+    path = request.url.path
+    method = request.method
+    client = getattr(request.client, "host", "unknown")
+
+    logger.info("Incoming request: %s %s from %s", method, path, client)
+
     provided_key = request.headers.get("x-api-key")
-    if config.api_key and provided_key != config.api_key:
-        return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
-    return await call_next(request)
+    if config.api_key:
+        if provided_key != config.api_key:
+            logger.warning(
+                "Invalid API key for %s %s from %s (provided=%r)",
+                method,
+                path,
+                client,
+                provided_key,
+            )
+            return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+    else:
+        logger.info("No API key configured; skipping auth check")
+
+    response = await call_next(request)
+    logger.info("Response: %s %s -> %s", method, path, response.status_code)
+    return response
 
 
 @app.get("/health")
 async def health() -> Dict[str, str]:
     """Return a simple health check response."""
     return {"status": "ok"}
+
+
+@app.post("/exec", response_model=ExecuteResponse)
+async def exec_root(req: ExecuteRequest) -> ExecuteResponse:
+    """Compatibility endpoint for LibreChat's Code Interpreter client."""
+    logger.info("[/exec] Received request: %s", req.model_dump())
+
+    language = (req.language or "python").lower()
+    if language not in EXECUTORS:
+        logger.warning("[/exec] Unsupported language: %s", language)
+        raise HTTPException(status_code=400, detail=f"Unsupported language: {language}")
+
+    executor = EXECUTORS[language]
+
+    try:
+        with tempfile.TemporaryDirectory(dir=str(TEMP_DIR_BASE)) as tmpdir:
+            session_dir = Path(tmpdir)
+            logger.info("[/exec] Running %s code in temp dir %s", language, session_dir)
+
+            result = executor.execute(session_dir, req.code, req.stdin)
+
+            files: List[str] = []
+            for p in session_dir.iterdir():
+                if p.is_file() and not p.name.startswith("."):
+                    files.append(p.name)
+
+            logger.info(
+                "[/exec] Execution finished: exit_code=%s, duration_ms=%s, files=%s",
+                result.exit_code,
+                result.duration_ms,
+                files,
+            )
+
+            return ExecuteResponse(
+                stdout=result.stdout,
+                stderr=result.stderr,
+                exit_code=result.exit_code,
+                duration_ms=result.duration_ms,
+                files=files,
+            )
+    except Exception as exc:
+        logger.exception("[/exec] Unhandled error during execution: %s", exc)
+        raise HTTPException(status_code=500, detail="Execution error")
 
 
 @app.post("/v1/sessions", response_model=SessionInfo)
@@ -155,8 +245,7 @@ async def execute_code(session_id: str, req: ExecuteRequest) -> ExecuteResponse:
         all_files = [p.name for p in session_dir.iterdir() if p.is_file() and not p.name.startswith(".")]
     else:
         # For GCS storage backend we need to create a temporary local directory and sync
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=str(TEMP_DIR_BASE)) as tmpdir:
             temp_session_dir = Path(tmpdir)
             # Download existing files into temp dir
             for filename in storage.list(session_id):

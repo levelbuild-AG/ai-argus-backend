@@ -8,7 +8,7 @@
   "com_agents_all": "Visi aģenti",
   "com_agents_all_category": "Viss",
   "com_agents_all_description": "Pārlūkot visus kopīgotos aģentus visās kategorijās",
-  "com_agents_by_librechat": "no LibreChat",
+  "com_agents_by_librechat": "no levelbuild",
   "com_agents_category_aftersales": "Pēcpārdošanas",
   "com_agents_category_aftersales_description": "Aģenti, kas specializējas pēcpārdošanas atbalstā, apkopē un klientu apkalpošanā",
   "com_agents_category_empty": "Nav atrasts neviens aģents {{category}} kategorijā",

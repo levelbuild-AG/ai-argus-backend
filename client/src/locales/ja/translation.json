@@ -4,7 +4,7 @@
   "com_a11y_ai_composing": "AIはまだ作成中です。",
   "com_a11y_end": "AIは返信を完了しました。",
   "com_a11y_start": "AIが返信を開始しました。",
-  "com_agents_by_librechat": "LibreChatより",
+  "com_agents_by_librechat": "levelbuildより",
   "com_agents_code_interpreter": "有効にすると、エージェントがLibreChat Code Interpreter APIを使用して、ファイル処理を含む生成されたコードを安全に実行できるようになります。有効な APIキーが必要です。",
   "com_agents_code_interpreter_title": "コードインタープリター API",
   "com_agents_create_error": "エージェントの作成中にエラーが発生しました。",

@@ -4,7 +4,7 @@
   "com_a11y_ai_composing": "الذكاء الاصطناعي ما زال يكتب",
   "com_a11y_end": "انتهى الذكاء الاصطناعي من الرد",
   "com_a11y_start": "بدأ الذكاء الاصطناعي بالرد",
-  "com_agents_by_librechat": "بواسطة LibreChat",
+  "com_agents_by_librechat": "بواسطة levelbuild",
   "com_agents_code_interpreter": "عند التمكين، يسمح للوكيل الخاص بك باستخدام واجهة برمجة التطبيقات لمفسر الشفرة LibreChat لتشغيل الشفرة المُنشأة، بما في ذلك معالجة الملفات، بشكل آمن. يتطلب مفتاح API صالح.",
   "com_agents_code_interpreter_title": "واجهة برمجة مُفسِّر الشفرة",
   "com_agents_create_error": "حدث خطأ أثناء إنشاء الوكيل الخاص بك",

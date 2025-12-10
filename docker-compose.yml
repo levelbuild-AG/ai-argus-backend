@@ -111,13 +111,13 @@ services:
       - CODEEXEC_MAX_CPU_SECS=120
       - CODEEXEC_MAX_EXECUTION_SECONDS=120
       - CODEEXEC_DISABLE_NETWORK=true
-    read_only: true
+    # read_only: true
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    volumes:
-      - codeexec-tmp:/tmp/codeexec
+    # volumes:
+    #   - codeexec-tmp:/tmp/codeexec:rw
     networks:
       - argus-net
 

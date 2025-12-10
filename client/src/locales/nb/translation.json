@@ -8,7 +8,7 @@
   "com_agents_all": "Alle agenter",
   "com_agents_all_category": "Alle",
   "com_agents_all_description": "Utforsk delte agenter på tvers av alle kategorier",
-  "com_agents_by_librechat": "av LibreChat",
+  "com_agents_by_librechat": "av levelbuild",
   "com_agents_category_aftersales": "Salgsoppfølging",
   "com_agents_category_aftersales_description": "Agenter for kundeservice, support og oppfølging etter et gjennomført salg.",
   "com_agents_category_empty": "Ingen agenter funnet i kategorien {{category}}.",

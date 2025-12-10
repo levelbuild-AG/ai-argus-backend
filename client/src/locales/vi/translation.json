@@ -2,7 +2,7 @@
   "com_a11y_ai_composing": "AI vẫn đang soạn thảo.",
   "com_a11y_end": "AI đã trả lời xong.",
   "com_a11y_start": "AI đã bắt đầu trả lời.",
-  "com_agents_by_librechat": "bởi LibreChat",
+  "com_agents_by_librechat": "bởi levelbuild",
   "com_agents_code_interpreter": "Khi được bật, cho phép agent của bạn tận dụng API Code Interpreter của LibreChat để chạy mã được tạo, bao gồm xử lý tệp, một cách an toàn. Yêu cầu khóa API hợp lệ.",
   "com_agents_create_error": "Đã xảy ra lỗi khi tạo agent của bạn.",
   "com_agents_description_placeholder": "Tùy chọn: Mô tả Agent của bạn ở đây",

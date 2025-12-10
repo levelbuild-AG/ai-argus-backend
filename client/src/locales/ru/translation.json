@@ -7,7 +7,7 @@
   "com_agents_all": "Все агенты",
   "com_agents_all_category": "Все",
   "com_agents_all_description": "Посмотреть всех общих агентов по всем категориям",
-  "com_agents_by_librechat": "от LibreChat",
+  "com_agents_by_librechat": "от levelbuild",
   "com_agents_category_aftersales": "После продажи",
   "com_agents_category_aftersales_description": "Агенты специализирующиеся на послепродажной поддержке, техническом обслуживании и обслуживании клиентов.",
   "com_agents_category_empty": "Не найдены агенты в {{category}} категории",

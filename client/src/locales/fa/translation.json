@@ -4,7 +4,7 @@
   "com_a11y_ai_composing": "هوش مصنوعی هنوز در حال نوشتنه .",
   "com_a11y_end": "هوش مصنوعی پاسخ خود را تموم کرده.",
   "com_a11y_start": "هوش مصنوعی پاسخ خود را شروع کرده.",
-  "com_agents_by_librechat": "توسط LibreChat",
+  "com_agents_by_librechat": "توسط levelbuild",
   "com_agents_code_interpreter": "وقتی فعال باشد، به کارگزار شما اجازه می‌دهد تا از LibreChat Code Interpreter API برای اجرای ایمن کدهای تولید شده، از جمله پردازش فایل، استفاده کند. به یک کلید API معتبر نیاز دارد.",
   "com_agents_code_interpreter_title": "کد Interpreter API",
   "com_agents_create_error": "در ایجاد کارگزار شما خطایی روی داد.",
