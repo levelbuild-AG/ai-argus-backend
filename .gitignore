@@ -213,3 +213,11 @@ docs/VALIDATION_EXECUTION_SUMMARY.md
 docs/ext_api_handoff.md
 docs/external_api.md
 docs/DEPLOYMENT_NOTES.md
+
+# Planning and roadmap docs (local only)
+COMMIT_ROADMAP.md
+EXT_V1_PHASEOUT_PLAN.md
+PHASEOUT_SUMMARY.md
+
+# Legacy ext-client package (removed, keep local if needed)
+packages/ext-client/
