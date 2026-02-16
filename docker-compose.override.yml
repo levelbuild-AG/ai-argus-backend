@@ -9,7 +9,12 @@ services:
         source: ./librechat.yaml
         target: /app/librechat.yaml
   rag_api:
-    image: ghcr.io/danny-avila/librechat-rag-api-dev:latest
+    # Override: build from submodule instead of pulling image
+    # Uncomment below to use pre-built image instead:
+    # image: ghcr.io/danny-avila/librechat-rag-api-dev:latest
+    build:
+      context: ./infra/rag_api
+    image: librechat-rag-api-dev:local
     volumes:
       - ./config/gcp/auth.json:/config/gcp/auth.json:ro
     environment:

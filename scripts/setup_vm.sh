@@ -24,6 +24,10 @@ TENANT_DOMAIN="levelbuild-argus-chat.levelbuild.com"
 LIBRECHAT_PORT=3080                   # port where LibreChat listens on the VM
 CERTBOT_EMAIL="florian.dittrich@levelbuild.com"
 
+# If true, the script may move /var/lib/docker to the extra disk on first-time setup.
+# For existing VMs or unknown disk state, keep false.
+ENABLE_DOCKER_DATA_MOVE="${ENABLE_DOCKER_DATA_MOVE:-false}"
+
 ########################################
 # 0. BASIC CHECKS
 ########################################
@@ -117,6 +121,7 @@ ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_HOST" \
   TENANT_DOMAIN="$TENANT_DOMAIN" \
   LIBRECHAT_PORT="$LIBRECHAT_PORT" \
   CERTBOT_EMAIL="$CERTBOT_EMAIL" \
+  ENABLE_DOCKER_DATA_MOVE="$ENABLE_DOCKER_DATA_MOVE" \
   bash -s << 'REMOTE_EOF'
 set -euo pipefail
 
@@ -177,7 +182,6 @@ docker compose version || true
 echo "[remote] Checking for extra data disk to use for Docker..."
 
 EXTRA_DISK=""
-# Find first non-root disk (assumes root is sda; adjust if your template differs)
 while read -r name type size; do
   if [ "$type" = "disk" ] && [ "$name" != "sda" ]; then
     EXTRA_DISK="/dev/$name"
@@ -185,62 +189,72 @@ while read -r name type size; do
   fi
 done < <(lsblk -ndo NAME,TYPE,SIZE)
 
-if [ -n "$EXTRA_DISK" ]; then
+if [ -z "$EXTRA_DISK" ]; then
+  echo "[remote] No extra data disk detected (only root disk). Skipping Docker data move."
+else
   echo "[remote] Detected extra disk: $EXTRA_DISK"
 
-  # Check if it's already in fstab (then assume it's configured)
-  if ! grep -q "$EXTRA_DISK" /etc/fstab; then
-    echo "[remote] Extra disk not yet in fstab. Formatting and mounting..."
-    sudo mkfs.ext4 -F "$EXTRA_DISK"
-    sudo mkdir -p /mnt/docker-data
-    sudo mount "$EXTRA_DISK" /mnt/docker-data
-    UUID=$(sudo blkid -s UUID -o value "$EXTRA_DISK")
-    echo "UUID=$UUID /mnt/docker-data ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+  if [ "${ENABLE_DOCKER_DATA_MOVE,,}" != "true" ]; then
+    echo "[remote] ENABLE_DOCKER_DATA_MOVE=false; skipping formatting/mounting/moving Docker data."
   else
-    echo "[remote] Extra disk already in fstab. Ensuring /mnt/docker-data exists and is mounted..."
+    echo "[remote] ENABLE_DOCKER_DATA_MOVE=true; attempting to mount extra disk safely..."
     sudo mkdir -p /mnt/docker-data
-    # Try mounting; if already mounted, this is harmless
-    sudo mount /mnt/docker-data || true
+
+    # Detect if disk already has a filesystem (or partitions) — if so, do NOT format.
+    FSTYPE="$(lsblk -ndo FSTYPE "$EXTRA_DISK" | head -n 1 || true)"
+    HAS_PARTITIONS="$(lsblk -n "$EXTRA_DISK" 2>/dev/null | awk 'NR>1{print $1}' | wc -l | tr -d ' ' || true)"
+
+    if mountpoint -q /mnt/docker-data; then
+      echo "[remote] /mnt/docker-data is already mounted; leaving as-is."
+    else
+      if [ -n "$FSTYPE" ] || [ "${HAS_PARTITIONS:-0}" -gt 0 ]; then
+        echo "[remote] Disk appears to be in use (fstype=$FSTYPE, partitions=$HAS_PARTITIONS). Will NOT format."
+        echo "[remote] Attempting to mount existing filesystem..."
+
+        if sudo mount "$EXTRA_DISK" /mnt/docker-data 2>/dev/null; then
+          echo "[remote] Mounted $EXTRA_DISK -> /mnt/docker-data"
+        else
+          PART="$(lsblk -ndo NAME "$EXTRA_DISK" | sed -n '2p' || true)"
+          if [ -n "$PART" ] && sudo mount "/dev/$PART" /mnt/docker-data 2>/dev/null; then
+            echo "[remote] Mounted /dev/$PART -> /mnt/docker-data"
+          else
+            echo "[remote] Could not mount existing disk safely. Skipping Docker data move."
+          fi
+        fi
+      else
+        echo "[remote] Disk looks empty (no fstype, no partitions). Formatting + mounting..."
+        sudo mkfs.ext4 -F "$EXTRA_DISK"
+        sudo mount "$EXTRA_DISK" /mnt/docker-data
+        UUID="$(sudo blkid -s UUID -o value "$EXTRA_DISK")"
+        echo "UUID=$UUID /mnt/docker-data ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+      fi
+    fi
+
+    # Only move data if mount succeeded and docker dir isn't already symlinked
+    if mountpoint -q /mnt/docker-data && [ ! -L /var/lib/docker ]; then
+      echo "[remote] Moving Docker + containerd data to /mnt/docker-data..."
+
+      sudo systemctl stop docker docker.socket containerd || true
+
+      sudo mkdir -p /mnt/docker-data/docker /mnt/docker-data/containerd
+
+      [ -d /var/lib/docker ] && sudo rsync -aHAX /var/lib/docker/ /mnt/docker-data/docker/ || true
+      [ -d /var/lib/containerd ] && sudo rsync -aHAX /var/lib/containerd/ /mnt/docker-data/containerd/ || true
+
+      [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ] && sudo mv /var/lib/docker /var/lib/docker.bak || true
+      [ -d /var/lib/containerd ] && [ ! -L /var/lib/containerd ] && sudo mv /var/lib/containerd /var/lib/containerd.bak || true
+
+      [ ! -e /var/lib/docker ] && sudo ln -s /mnt/docker-data/docker /var/lib/docker
+      [ ! -e /var/lib/containerd ] && sudo ln -s /mnt/docker-data/containerd /var/lib/containerd
+
+      sudo systemctl start containerd || true
+      sudo systemctl start docker || true
+
+      echo "[remote] Docker + containerd now use /mnt/docker-data (via symlinks)."
+    else
+      echo "[remote] Skipping docker data move (either not mounted or already moved)."
+    fi
   fi
-
-  # Only move data if /var/lib/docker is NOT already a symlink
-  if [ ! -L /var/lib/docker ]; then
-    echo "[remote] Moving Docker + containerd data to /mnt/docker-data..."
-
-    sudo systemctl stop docker docker.socket containerd || true
-
-    sudo mkdir -p /mnt/docker-data/docker
-    sudo mkdir -p /mnt/docker-data/containerd
-
-    if [ -d /var/lib/docker ]; then
-      sudo rsync -aHAX /var/lib/docker/ /mnt/docker-data/docker/ || true
-    fi
-
-    if [ -d /var/lib/containerd ]; then
-      sudo rsync -aHAX /var/lib/containerd/ /mnt/docker-data/containerd/ || true
-    fi
-
-    # Backup old dirs (if they still exist) and replace with symlinks
-    if [ -d /var/lib/docker ] && [ ! -L /var/lib/docker ]; then
-      sudo mv /var/lib/docker /var/lib/docker.bak || true
-    fi
-    if [ -d /var/lib/containerd ] && [ ! -L /var/lib/containerd ]; then
-      sudo mv /var/lib/containerd /var/lib/containerd.bak || true
-    fi
-
-    [ ! -e /var/lib/docker ] && sudo ln -s /mnt/docker-data/docker /var/lib/docker
-    [ ! -e /var/lib/containerd ] && sudo ln -s /mnt/docker-data/containerd /var/lib/containerd
-
-    sudo systemctl start containerd || true
-    sudo systemctl start docker || true
-
-    echo "[remote] Docker + containerd now use /mnt/docker-data (via symlinks)."
-    echo "[remote] Once you're confident it's working, you can remove /var/lib/docker.bak and /var/lib/containerd.bak to free space."
-  else
-    echo "[remote] /var/lib/docker is already a symlink. Skipping Docker data move."
-  fi
-else
-  echo "[remote] No extra data disk detected (only root disk). Skipping Docker data move."
 fi
 
 ########################################
@@ -264,47 +278,143 @@ else
 fi
 
 ########################################
-# 4.6 NGINX REVERSE PROXY CONFIG
+# 4.6 NGINX REVERSE PROXY CONFIG (HTTP + HTTPS-ready)
 ########################################
 
+NGINX_CORS_MAP="/etc/nginx/conf.d/librechat_cors_map.conf"
+
+echo "[remote] Writing Nginx CORS map to ${NGINX_CORS_MAP}..."
+sudo tee "${NGINX_CORS_MAP}" >/dev/null <<'MAP_EOF'
+# This file is included by nginx.conf via conf.d/*.conf (http context)
+# Add any origin that may embed the chat (e.g. portal) so preflight OPTIONS succeeds.
+# LibreChat CORS_ALLOWED_ORIGINS (.env) must also include these origins for actual responses.
+
+map $http_origin $cors_allow_origin {
+    default "";
+
+    "http://localhost:5173"                      $http_origin;
+    "https://development.levelbuild.com"         $http_origin;
+    "https://portal.levelbuild.com"              $http_origin;
+    "https://cloud.jaeger-gruppe.de"             $http_origin;
+    "https://mobau.demmelhuber.de"               $http_origin;
+    "https://implenia.levelbuild.com"            $http_origin;
+    "https://dagu.mainka-bau.de"                 $http_origin;
+    "https://levelbuild-argus-chat.levelbuild.com" $http_origin;
+}
+MAP_EOF
+
+
 NGINX_CONF="/etc/nginx/sites-available/librechat"
+NGINX_SNIPPET="/etc/nginx/snippets/librechat_proxy.conf"
 
-echo "[remote] Writing Nginx config to ${NGINX_CONF}..."
+echo "[remote] Writing Nginx proxy snippet to ${NGINX_SNIPPET}..."
 
+# Snippet contains routing logic (shared by :80 and :443 blocks)
+sudo tee "${NGINX_SNIPPET}" >/dev/null <<'SNIP_EOF'
+client_max_body_size 512M;
+
+# Basic hardening header
+add_header X-Content-Type-Options "nosniff" always;
+
+# -------------------------------------------------------
+# External API: /api/ext/v1/*  ->  upstream /ext/v1/*
+# CORS: handled ONLY for preflight to avoid duplicate headers
+# -------------------------------------------------------
+location ^~ /api/ext/v1/ {
+
+    # Preflight: nginx answers directly (no upstream)
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin $cors_allow_origin always;
+        add_header Access-Control-Allow-Credentials "true" always;
+        add_header Vary Origin always;
+        add_header Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization,Content-Type,Accept,X-Requested-With,x-user-id,x-user-email,x-user-name,x-user-role" always;
+        add_header Access-Control-Max-Age 600 always;
+        return 204;
+    }
+
+    # Normal requests: proxy to LibreChat and DO NOT add CORS here
+    add_header Access-Control-Allow-Credentials "true" always;
+    proxy_pass http://127.0.0.1:__LIBRECHAT_PORT__/ext/v1/;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+}
+
+# -------------------------------------------------------
+# External API: /api/ext/v2/*  ->  upstream /ext/v2/*
+# CORS: handled ONLY for preflight to avoid duplicate headers
+# -------------------------------------------------------
+location ^~ /api/ext/v2/ {
+
+    # Preflight: nginx answers directly (no upstream)
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin $cors_allow_origin always;
+        add_header Access-Control-Allow-Credentials "true" always;
+        add_header Vary Origin always;
+        add_header Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization,Content-Type,Accept,X-Requested-With,x-user-id,x-user-email,x-user-name,x-user-role" always;
+        add_header Access-Control-Max-Age 600 always;
+        return 204;
+    }
+
+    # Normal requests: proxy to LibreChat and DO NOT add CORS here
+    add_header Access-Control-Allow-Credentials "true" always;
+    proxy_pass http://127.0.0.1:__LIBRECHAT_PORT__/ext/v2/;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+}
+
+# -------------------------------------------------------
+# Default: everything else (LibreChat UI + internal API)
+# -------------------------------------------------------
+location / {
+    proxy_pass http://127.0.0.1:__LIBRECHAT_PORT__/;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # WebSocket support
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+SNIP_EOF
+
+# Inject the actual port into the snippet (avoid nginx variable expansion issues)
+sudo sed -i "s/__LIBRECHAT_PORT__/${LIBRECHAT_PORT}/g" "${NGINX_SNIPPET}"
+
+echo "[remote] Writing Nginx HTTP site config to ${NGINX_CONF}..."
+
+# HTTP server block only (HTTPS block will be written after certs exist)
 sudo tee "${NGINX_CONF}" >/dev/null <<NGINX_EOF
 server {
     listen 80;
     listen [::]:80;
     server_name $TENANT_DOMAIN;
 
-    client_max_body_size 200M;
-
-    # Basic hardening header
-    add_header X-Content-Type-Options "nosniff" always;
-
-    location / {
-        proxy_pass http://127.0.0.1:$LIBRECHAT_PORT;
-
-        # Forward real client info
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
+    include /etc/nginx/snippets/librechat_proxy.conf;
 }
 NGINX_EOF
 
 echo "[remote] Enabling Nginx site..."
 
-# Disable default site if present
 sudo rm -f /etc/nginx/sites-enabled/default || true
-
-# Enable our LibreChat site
 sudo ln -sf "${NGINX_CONF}" /etc/nginx/sites-enabled/librechat
 
 echo "[remote] Testing Nginx configuration..."
@@ -314,20 +424,77 @@ echo "[remote] Reloading Nginx..."
 sudo systemctl reload nginx
 
 ########################################
-# 4.7 LET'S ENCRYPT (CERTBOT) - HTTPS
+# 4.7 LET'S ENCRYPT (CERTBOT) - HTTPS (certonly, we own nginx)
 ########################################
 
-echo "[remote] Requesting Let's Encrypt certificate for $TENANT_DOMAIN..."
+echo "[remote] Ensuring Let's Encrypt certificate exists for $TENANT_DOMAIN (certonly)..."
 
-sudo certbot --nginx \
+# Try to obtain cert if missing; do not fail the whole run if LE is temporarily unavailable
+sudo certbot certonly --nginx \
   --non-interactive \
   --agree-tos \
   --email "$CERTBOT_EMAIL" \
-  -d "$TENANT_DOMAIN" \
-  --redirect
+  -d "$TENANT_DOMAIN" || true
+
+# Resolve cert paths via certbot lineage (most reliable)
+LINEAGE="$(sudo certbot certificates 2>/dev/null | awk -v d="$TENANT_DOMAIN" '
+  $0 ~ "Certificate Name:" {name=$3}
+  $0 ~ "Domains:" && $0 ~ d {print name; exit}
+')"
+
+if [ -z "$LINEAGE" ]; then
+  # Fallback: assume lineage equals domain (common case)
+  LINEAGE="$TENANT_DOMAIN"
+fi
+
+FULLCHAIN="/etc/letsencrypt/live/$LINEAGE/fullchain.pem"
+PRIVKEY="/etc/letsencrypt/live/$LINEAGE/privkey.pem"
+
+if ! sudo test -f "$FULLCHAIN" || ! sudo test -f "$PRIVKEY"; then
+  echo "[remote][error] Expected cert files not accessible/found (root-only path):"
+  echo "  fullchain=$FULLCHAIN"
+  echo "  privkey=$PRIVKEY"
+  echo "[remote][error] Refusing to overwrite nginx config (to avoid downtime)."
+  echo "[remote][error] Run on VM: sudo certbot certificates"
+  exit 1
+fi
+
+echo "[remote] Writing Nginx HTTPS + redirect config (managed by this script)..."
+
+sudo tee "${NGINX_CONF}" >/dev/null <<NGINX_SITE_EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $TENANT_DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name $TENANT_DOMAIN;
+
+    ssl_certificate     $FULLCHAIN;
+    ssl_certificate_key $PRIVKEY;
+
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    include /etc/nginx/snippets/librechat_proxy.conf;
+}
+NGINX_SITE_EOF
+
+sudo rm -f /etc/nginx/sites-enabled/default || true
+sudo ln -sf "${NGINX_CONF}" /etc/nginx/sites-enabled/librechat
+
+echo "[remote] Testing Nginx configuration..."
+sudo nginx -t
+
+echo "[remote] Reloading Nginx..."
+sudo systemctl reload nginx
 
 echo "[remote] Testing Certbot auto-renewal (dry run)..."
-sudo certbot renew --dry-run
+sudo certbot renew --dry-run || true
 
 ########################################
 # 4.8 SIMPLE HTTPS HEALTH CHECK

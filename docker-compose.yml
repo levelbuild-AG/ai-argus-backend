@@ -23,6 +23,7 @@ services:
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
       - GOOGLE_SERVICE_KEY_FILE=/config/gcp/auth.json
+      - EXT_V2_DEBUG=${EXT_V2_DEBUG}
     volumes:
       - type: bind
         source: ./.env
@@ -68,7 +69,9 @@ services:
       - argus-net
   rag_api:
     container_name: rag_api
-    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
+    build:
+      context: ./infra/rag_api
+    image: librechat-rag-api-dev:local
     environment:
       - DB_HOST=vectordb
       - RAG_PORT=${RAG_PORT:-8000}

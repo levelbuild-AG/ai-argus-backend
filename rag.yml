@@ -13,7 +13,9 @@ services:
       - "5433:5432"
 
   rag_api:
-    image: ghcr.io/danny-avila/librechat-rag-api-dev:latest
+    build:
+      context: ./infra/rag_api
+    image: librechat-rag-api-dev:local
     environment:
       - DB_HOST=vectordb
       - DB_PORT=5432
@@ -21,7 +23,7 @@ services:
       - POSTGRES_USER=myuser
       - POSTGRES_PASSWORD=mypassword
     ports:
-      - "${RAG_PORT}:${RAG_PORT}"
+      - "${RAG_PORT:-8000}:${RAG_PORT:-8000}"
     depends_on:
       - vectordb
     env_file:
