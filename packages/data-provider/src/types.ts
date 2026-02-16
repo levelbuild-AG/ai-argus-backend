@@ -98,6 +98,7 @@ export type TEphemeralAgent = {
   mcp?: string[];
   web_search?: boolean;
   file_search?: boolean;
+  ingest_files?: boolean;
   execute_code?: boolean;
 };
 

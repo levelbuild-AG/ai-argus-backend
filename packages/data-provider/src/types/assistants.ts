@@ -19,6 +19,7 @@ export enum Tools {
   execute_code = 'execute_code',
   code_interpreter = 'code_interpreter',
   file_search = 'file_search',
+  ingest_files = 'ingest_files',
   web_search = 'web_search',
   retrieval = 'retrieval',
   function = 'function',

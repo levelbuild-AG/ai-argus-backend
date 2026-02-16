@@ -238,6 +238,7 @@ export const defaultAgentFormValues = {
   recursion_limit: undefined,
   [Tools.execute_code]: false,
   [Tools.file_search]: false,
+  [Tools.ingest_files]: false,
   [Tools.web_search]: false,
   category: 'general',
   support_contact: {
@@ -641,6 +642,18 @@ export type UIResource = {
   [key: string]: unknown;
 };
 
+export type IngestFilesResult = {
+  files: Array<{
+    file_id: string;
+    filename?: string;
+    context?: string;
+    error?: string;
+    truncated?: boolean;
+    char_count?: number;
+  }>;
+  max_chars?: number;
+};
+
 export type TAttachmentMetadata = {
   type?: Tools;
   messageId: string;
@@ -649,6 +662,7 @@ export type TAttachmentMetadata = {
   [Tools.ui_resources]?: UIResource[];
   [Tools.web_search]?: SearchResultData;
   [Tools.file_search]?: SearchResultData;
+  [Tools.ingest_files]?: IngestFilesResult;
 };
 
 export type TAttachment =

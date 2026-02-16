@@ -149,6 +149,9 @@ export const audioMimeTypes =
 
 export const videoMimeTypes = /^video\/(mp4|avi|mov|wmv|flv|webm|mkv|m4v|3gp|ogv)$/;
 
+/** .eml and .msg for agent / file_search uploads */
+export const emailMimeTypes = /^(message\/rfc822|application\/vnd\.ms-outlook)$/;
+
 export const defaultOCRMimeTypes = [
   imageMimeTypes,
   /^application\/pdf$/,
@@ -170,6 +173,8 @@ export const supportedMimeTypes = [
   audioMimeTypes,
   /** Supported by LC Code Interpreter API */
   /^image\/(svg|svg\+xml)$/,
+  /** .eml and .msg for RAG / file_search */
+  emailMimeTypes,
 ];
 
 export const codeInterpreterMimeTypes = [
