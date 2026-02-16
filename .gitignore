@@ -169,3 +169,44 @@ coordination/orchestration/*
 claude-flow
 hive-mind-prompt-*.txt
 gce_key
+*.pyc
+PROJECT_STATUS.md
+
+# Local API replay / debug scripts
+api/scripts/
+
+# One-off fixture and response samples
+convos_*.json
+msgs.json
+sse_*.json
+
+# Local debug and ext v2 test harness
+scripts/debug/
+scripts/ext_v2_tests/
+
+# LibreChat custom notes and captured responses (keep repo clean)
+librechat-custom/datengut/*_FIXES.md
+librechat-custom/datengut/*_*.md
+librechat-custom/datengut/*.txt
+librechat-custom/datengut/legacy_chat_history_examples/
+
+# Standalone OCR app
+ocr_service_app.py
+
+# Levelbuild-specific config (keep locally)
+librechat.levelbuild.yaml
+
+# One-off deployment and validation reports
+docs/*_REPORT.md
+docs/*_SUMMARY.md
+docs/VM_DEPLOYMENT_*.md
+docs/OCR_*.md
+docs/RAG_*.md
+docs/DEPLOYMENT_FIX_REPORT.md
+docs/DEPLOYMENT_HEALTH_CHECK_FIX.md
+docs/FINAL_DELIVERABLES_REPORT.md
+docs/FINAL_OCR_CONFIRMATION_PASS.md
+docs/VALIDATION_EXECUTION_SUMMARY.md
+docs/ext_api_handoff.md
+docs/external_api.md
+docs/DEPLOYMENT_NOTES.md

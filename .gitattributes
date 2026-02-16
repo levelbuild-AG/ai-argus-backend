@@ -1,0 +1,2 @@
+# Always keep shell scripts in LF (prevents VM bash parse errors)
+*.sh text eol=lf

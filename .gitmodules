@@ -1,3 +1,6 @@
 [submodule "infra/firecrawl"]
 	path = infra/firecrawl
 	url = https://github.com/firecrawl/firecrawl.git
+[submodule "infra/rag_api"]
+	path = infra/rag_api
+	url = https://github.com/levelbuild-AG/rag_api.git
