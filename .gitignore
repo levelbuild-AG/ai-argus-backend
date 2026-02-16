@@ -189,6 +189,9 @@ librechat-custom/datengut/*_FIXES.md
 librechat-custom/datengut/*_*.md
 librechat-custom/datengut/*.txt
 librechat-custom/datengut/legacy_chat_history_examples/
+librechat-custom/datengut/onmaskload_argus.js
+librechat-custom/datengut/onmaskload_legacy*.js
+librechat-custom/datengut/onmaskload_load_librechat_ui.js
 
 # Standalone OCR app
 ocr_service_app.py
