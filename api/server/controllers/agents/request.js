@@ -8,6 +8,7 @@ const {
 } = require('~/server/middleware');
 const { disposeClient, clientRegistry, requestDataMap } = require('~/server/cleanup');
 const { saveMessage } = require('~/models');
+const { Tools } = require('librechat-data-provider');
 
 function createCloseHandler(abortController) {
   return function (manual) {

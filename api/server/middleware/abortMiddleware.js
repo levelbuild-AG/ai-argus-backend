@@ -244,15 +244,28 @@ const createAbortController = (req, res, getAbortData, getReqData) => {
     }
 
     // Get abort data using stored function
-    const { conversationId, userMessage, userMessagePromise, promptTokens, ...responseData } =
-      ctrlData.getAbortDataFn();
+    const abortData = ctrlData.getAbortDataFn();
+    const {
+      conversationId,
+      userMessage,
+      userMessagePromise,
+      promptTokens,
+      partialText,
+      ...responseData
+    } = abortData;
 
-    const completionTokens = await countTokens(responseData?.text ?? '');
+    const finalText =
+      typeof responseData.text === 'string' && responseData.text.length > 0
+        ? responseData.text
+        : partialText ?? '';
+
+    const completionTokens = await countTokens(finalText ?? '');
     const user = ctrlData.userId;
 
     const responseMessage = {
       ...responseData,
       conversationId,
+      text: finalText,
       finish_reason: 'incomplete',
       endpoint: ctrlData.endpoint,
       iconURL: ctrlData.iconURL,
@@ -372,16 +385,16 @@ const handleAbortError = async (res, req, error, data) => {
     await sendError(req, res, options, callback);
   };
 
-  if (partialText && partialText.length > 5) {
+  if (partialText?.length) {
     try {
       return await abortMessage(req, res);
     } catch (err) {
       logger.error('[handleAbortError] error while trying to abort message', err);
       return respondWithError(partialText);
     }
-  } else {
-    return respondWithError();
   }
+
+  return respondWithError();
 };
 
 module.exports = {
