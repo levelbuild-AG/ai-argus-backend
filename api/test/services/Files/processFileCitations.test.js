@@ -118,7 +118,7 @@ describe('processFileCitations', () => {
       expect(result).toBeNull();
     });
 
-    it('should filter results below relevance threshold', async () => {
+    it('should return attachments even when all results are below relevance threshold', async () => {
       const toolArtifact = {
         [Tools.file_search]: {
           sources: [
@@ -143,7 +143,9 @@ describe('processFileCitations', () => {
         appConfig: mockAppConfig,
       });
 
-      expect(result).toBeNull();
+      expect(result).toBeTruthy();
+      expect(result.file_search.sources).toHaveLength(1);
+      expect(result.file_search.sources[0].fileId).toBe('file_789');
     });
 
     it('should return null when artifact is missing file_search data', async () => {

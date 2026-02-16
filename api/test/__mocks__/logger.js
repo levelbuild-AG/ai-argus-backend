@@ -1,5 +1,10 @@
 jest.mock('winston', () => {
-  const mockFormatFunction = jest.fn((fn) => fn);
+  const mockFormatFunction = jest.fn((fn = ((info) => info)) => {
+    const formatWrap = jest.fn(() => {
+      return (info) => fn(info ?? {});
+    });
+    return formatWrap;
+  });
 
   mockFormatFunction.colorize = jest.fn();
   mockFormatFunction.combine = jest.fn();

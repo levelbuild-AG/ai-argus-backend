@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
-const { messageSchema } = require('@librechat/data-schemas');
+const { messageSchema, convoSchema } = require('@librechat/data-schemas');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const {
@@ -19,6 +19,7 @@ jest.mock('~/server/services/Config/app');
  * @type {import('mongoose').Model<import('@librechat/data-schemas').IMessage>}
  */
 let Message;
+let Conversation;
 
 describe('Message Operations', () => {
   let mongoServer;
@@ -29,6 +30,7 @@ describe('Message Operations', () => {
     mongoServer = await MongoMemoryServer.create();
     const mongoUri = mongoServer.getUri();
     Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
+    Conversation = mongoose.models.Conversation || mongoose.model('Conversation', convoSchema);
     await mongoose.connect(mongoUri);
   });
 
@@ -40,6 +42,7 @@ describe('Message Operations', () => {
   beforeEach(async () => {
     // Clear database
     await Message.deleteMany({});
+    await Conversation.deleteMany({});
 
     mockReq = {
       user: { id: 'user123' },
@@ -82,6 +85,7 @@ describe('Message Operations', () => {
       const result = await saveMessage(mockReq, mockMessageData);
       expect(result).toBeUndefined();
     });
+
   });
 
   describe('updateMessageText', () => {
