@@ -34,7 +34,7 @@ Project maintainers have the right and responsibility to remove, edit, or reject
 6. Build API methods: `npm run build:api`.
 7. Setup and run unit tests:
     - Copy `.env.test`: `cp api/test/.env.test.example api/test/.env.test`.
-    - Run backend unit tests: `npm run test:api`.
+   - Run backend unit tests: `npm test` (delegates to the `api` workspace; pass specific files via `npm test -- Conversation.spec.js`).
     - Run frontend unit tests: `npm run test:client`.
 8. Setup and run integration tests:
     - Build client: `cd client && npm run build`.
@@ -53,7 +53,7 @@ Project maintainers have the right and responsibility to remove, edit, or reject
     - Restart the ESLint server ("ESLint: Restart ESLint Server" in VS Code command bar) and your IDE after reinstalling or updating.
 4. Clear web app localStorage and cookies before and after changes.
 5. For frontend changes, compile typescript before and after changes to check for introduced errors: `cd client && npm run build`.
-6. Run backend unit tests: `npm run test:api`.
+6. Run backend unit tests: `npm test` (or `npm run test:api` for custom flags).
 7. Run frontend unit tests: `npm run test:client`.
 8. Run integration tests: `npm run e2e`.
 
