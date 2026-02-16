@@ -91,7 +91,9 @@ const loadEphemeralAgent = async ({ req, spec, agent_id, endpoint, model_paramet
     tools.push(Tools.execute_code);
   }
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
-    tools.push(Tools.file_search);
+    tools.push(Tools.file_search, Tools.ingest_files);
+  } else if (ephemeralAgent?.ingest_files === true) {
+    tools.push(Tools.ingest_files);
   }
   if (ephemeralAgent?.web_search === true || modelSpec?.webSearch === true) {
     tools.push(Tools.web_search);

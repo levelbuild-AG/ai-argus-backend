@@ -89,6 +89,19 @@ const initializeAgent = async ({
     if (requestFiles.length || toolFiles.length) {
       currentFiles = await processFiles(requestFiles.concat(toolFiles));
     }
+  } else if (isInitialAgent && conversationId != null && !requestFiles.length) {
+    const fileIds = (await getConvoFiles(conversationId)) ?? [];
+    /** @type {Set<EToolResources>} */
+    const toolResourceSet = new Set();
+    for (const tool of agent.tools) {
+      if (EToolResources[tool]) {
+        toolResourceSet.add(EToolResources[tool]);
+      }
+    }
+    const toolFiles = await getToolFilesByIds(fileIds, toolResourceSet);
+    if (toolFiles.length) {
+      currentFiles = await processFiles(toolFiles);
+    }
   } else if (isInitialAgent && requestFiles.length) {
     currentFiles = await processFiles(requestFiles);
   }
@@ -115,6 +128,24 @@ const initializeAgent = async ({
     tool_resources: agent.tool_resources,
     requestFileSet: new Set(requestFiles?.map((file) => file.file_id)),
   });
+
+  if (attachments?.length) {
+    const fileSearchResource = tool_resources?.[EToolResources.file_search] ?? {};
+    const existingFiles = Array.isArray(fileSearchResource.files)
+      ? fileSearchResource.files
+      : [];
+    const existingIds = new Set(existingFiles.map((file) => file?.file_id).filter(Boolean));
+    const mergedFiles = [...existingFiles];
+    for (const file of attachments) {
+      if (file?.file_id && !existingIds.has(file.file_id)) {
+        mergedFiles.push(file);
+      }
+    }
+    tool_resources[EToolResources.file_search] = {
+      ...fileSearchResource,
+      files: mergedFiles,
+    };
+  }
 
   const {
     tools: structuredTools,

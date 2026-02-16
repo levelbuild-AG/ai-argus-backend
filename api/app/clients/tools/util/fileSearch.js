@@ -13,19 +13,22 @@ const { getFiles } = require('~/models/File');
  * @param {ServerRequest} options.req
  * @param {Agent['tool_resources']} options.tool_resources
  * @param {string} [options.agentId] - The agent ID for file access control
+ * @param {boolean} [options.excludeAgentResources] - Whether to exclude agent tool_resources files
  * @returns {Promise<{
  *   files: Array<{ file_id: string; filename: string }>,
  *   toolContext: string
  * }>}
  */
 const primeFiles = async (options) => {
-  const { tool_resources, req, agentId } = options;
+  const { tool_resources, req, agentId, excludeAgentResources = false } = options;
   const file_ids = tool_resources?.[EToolResources.file_search]?.file_ids ?? [];
   const agentResourceIds = new Set(file_ids);
   const resourceFiles = tool_resources?.[EToolResources.file_search]?.files ?? [];
 
   // Get all files first
-  const allFiles = (await getFiles({ file_id: { $in: file_ids } }, null, { text: 0 })) ?? [];
+  const allFiles = excludeAgentResources || file_ids.length === 0
+    ? []
+    : (await getFiles({ file_id: { $in: file_ids } }, null, { text: 0 })) ?? [];
 
   // Filter by access if user and agent are provided
   let dbFiles;
@@ -56,10 +59,12 @@ const primeFiles = async (options) => {
     toolContext += `\n\t- ${file.filename}${
       agentResourceIds.has(file.file_id) ? '' : ' (just attached by user)'
     }`;
-    files.push({
-      file_id: file.file_id,
-      filename: file.filename,
-    });
+    if (!excludeAgentResources || !agentResourceIds.has(file.file_id)) {
+      files.push({
+        file_id: file.file_id,
+        filename: file.filename,
+      });
+    }
   }
 
   return { files, toolContext };
@@ -76,7 +81,7 @@ const primeFiles = async (options) => {
  */
 const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = false }) => {
   return tool(
-    async ({ query }) => {
+    async ({ query }, runnableConfig) => {
       if (files.length === 0) {
         return ['No files to search. Instruct the user to add files for the search.', undefined];
       }
@@ -84,6 +89,8 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
       if (!jwtToken) {
         return ['There was an error authenticating the file search request.', undefined];
       }
+
+      const turn = runnableConfig?.toolCall?.turn ?? 0;
 
       /**
        *
@@ -144,7 +151,7 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
         .map(
           (result, index) =>
             `File: ${result.filename}${
-              fileCitations ? `\nAnchor: \\ue202turn0file${index} (${result.filename})` : ''
+              fileCitations ? `\nAnchor: \\ue202turn${turn}file${index} (${result.filename})` : ''
             }\nRelevance: ${(1.0 - result.distance).toFixed(4)}\nContent: ${result.content}\n`,
         )
         .join('\n---\n');
@@ -159,22 +166,14 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
         pageRelevance: result.page ? { [result.page]: 1.0 - result.distance } : {},
       }));
 
-      return [formattedString, { [Tools.file_search]: { sources, fileCitations } }];
+      return [formattedString, { [Tools.file_search]: { sources, fileCitations, turn } }];
     },
     {
       name: Tools.file_search,
       responseFormat: 'content_and_artifact',
       description: `Performs semantic search across attached "${Tools.file_search}" documents using natural language queries. This tool analyzes the content of uploaded files to find relevant information, quotes, and passages that best match your query. Use this to extract specific information or find relevant sections within the available documents.${
         fileCitations
-          ? `
-
-**CITE FILE SEARCH RESULTS:**
-Use anchor markers immediately after statements derived from file content. Reference the filename in your text:
-- File citation: "The document.pdf states that... \\ue202turn0file0"  
-- Page reference: "According to report.docx... \\ue202turn0file1"
-- Multi-file: "Multiple sources confirm... \\ue200\\ue202turn0file0\\ue202turn0file1\\ue201"
-
-**ALWAYS mention the filename in your text before the citation marker. NEVER use markdown links or footnotes.**`
+          ? `\n\n**CITE FILE SEARCH RESULTS:**\nUse anchor markers immediately after statements derived from file content. Reference the filename in your text:\n- File citation: "The document.pdf states that... \\ue202turn0file0"  \n- Page reference: "According to report.docx... \\ue202turn0file1"\n- Multi-file: "Multiple sources confirm... \\ue200\\ue202turn0file0\\ue202turn0file1\\ue201"\n\n**ALWAYS mention the filename in your text before the citation marker. NEVER use markdown links or footnotes.**`
           : ''
       }`,
       schema: z.object({

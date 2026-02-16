@@ -402,8 +402,14 @@ async function loadAgentTools({ req, res, agent, signal, tool_resources, openAIA
   const areToolsEnabled = checkCapability(AgentCapabilities.tools);
 
   let includesWebSearch = false;
-  const _agentTools = agent.tools?.filter((tool) => {
+  const toolsToLoad = new Set(agent.tools ?? []);
+  if (toolsToLoad.has(Tools.file_search)) {
+    toolsToLoad.add(Tools.ingest_files);
+  }
+  const _agentTools = Array.from(toolsToLoad).filter((tool) => {
     if (tool === Tools.file_search) {
+      return checkCapability(AgentCapabilities.file_search);
+    } else if (tool === Tools.ingest_files) {
       return checkCapability(AgentCapabilities.file_search);
     } else if (tool === Tools.execute_code) {
       return checkCapability(AgentCapabilities.execute_code);
@@ -460,7 +466,12 @@ async function loadAgentTools({ req, res, agent, signal, tool_resources, openAIA
   const agentTools = [];
   for (let i = 0; i < loadedTools.length; i++) {
     const tool = loadedTools[i];
-    if (tool.name && (tool.name === Tools.execute_code || tool.name === Tools.file_search)) {
+    if (
+      tool.name &&
+      (tool.name === Tools.execute_code ||
+        tool.name === Tools.file_search ||
+        tool.name === Tools.ingest_files)
+    ) {
       agentTools.push(tool);
       continue;
     }

@@ -12,6 +12,7 @@ const {
   ChatModelStreamHandler,
 } = require('@librechat/agents');
 const { processFileCitations } = require('~/server/services/Files/Citations');
+const { normalizeCitationStreamDelta } = require('~/server/utils/citations');
 const { processCodeOutput } = require('~/server/services/Files/Code/process');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { saveBase64Image } = require('~/server/services/Files/process');
@@ -154,7 +155,13 @@ function checkIfLastAgent(last_agent_id, langgraph_node) {
  * @returns {Record<string, t.EventHandler>} The default handlers.
  * @throws {Error} If the request is not found.
  */
-function getDefaultHandlers({ res, aggregateContent, toolEndCallback, collectedUsage }) {
+function getDefaultHandlers({
+  res,
+  aggregateContent,
+  toolEndCallback,
+  collectedUsage,
+  streamCitationState,
+}) {
   if (!res || !aggregateContent) {
     throw new Error(
       `[getDefaultHandlers] Missing required options: res: ${!res}, aggregateContent: ${!aggregateContent}`,
@@ -237,10 +244,35 @@ function getDefaultHandlers({ res, aggregateContent, toolEndCallback, collectedU
        * @param {GraphRunnableConfig['configurable']} [metadata] The runnable metadata.
        */
       handle: (event, data, metadata) => {
+        let outgoingData = data;
+        const runId = metadata?.run_id;
+        const streamState = streamCitationState?.runs?.get(runId);
+        if (streamState?.enabled && data?.delta != null) {
+          const deltaText = typeof data.delta === 'string'
+            ? data.delta
+            : typeof data.delta?.text === 'string'
+              ? data.delta.text
+              : null;
+          if (typeof deltaText === 'string') {
+            const normalized = normalizeCitationStreamDelta({
+              deltaText,
+              buffer: streamState.buffer,
+              enableLoose: true,
+              tailSize: streamCitationState.tailSize,
+            });
+            streamState.buffer = normalized.buffer;
+            outgoingData = {
+              ...data,
+              delta: typeof data.delta === 'string'
+                ? normalized.emitText
+                : { ...data.delta, text: normalized.emitText },
+            };
+          }
+        }
         if (checkIfLastAgent(metadata?.last_agent_id, metadata?.langgraph_node)) {
-          sendEvent(res, { event, data });
+          sendEvent(res, { event, data: outgoingData });
         } else if (!metadata?.hide_sequential_outputs) {
-          sendEvent(res, { event, data });
+          sendEvent(res, { event, data: outgoingData });
         }
         aggregateContent({ event, data });
       },
@@ -274,7 +306,7 @@ function getDefaultHandlers({ res, aggregateContent, toolEndCallback, collectedU
  * @param {Promise<MongoFile | { filename: string; filepath: string; expires: number;} | null>[]} params.artifactPromises
  * @returns {ToolEndCallback} The tool end callback.
  */
-function createToolEndCallback({ req, res, artifactPromises }) {
+function createToolEndCallback({ req, res, artifactPromises, streamCitationState }) {
   /**
    * @type {ToolEndCallback}
    */
@@ -301,6 +333,12 @@ function createToolEndCallback({ req, res, artifactPromises }) {
           });
           if (!attachment) {
             return null;
+          }
+          if (streamCitationState && metadata?.run_id) {
+            streamCitationState.runs.set(metadata.run_id, {
+              enabled: true,
+              buffer: streamCitationState.runs.get(metadata.run_id)?.buffer || '',
+            });
           }
           if (!res.headersSent) {
             return attachment;
@@ -355,6 +393,28 @@ function createToolEndCallback({ req, res, artifactPromises }) {
           return attachment;
         })().catch((error) => {
           logger.error('Error processing artifact content:', error);
+          return null;
+        }),
+      );
+    }
+
+    if (output.artifact[Tools.ingest_files]) {
+      artifactPromises.push(
+        (async () => {
+          const attachment = {
+            type: Tools.ingest_files,
+            messageId: metadata.run_id,
+            toolCallId: output.tool_call_id,
+            conversationId: metadata.thread_id,
+            [Tools.ingest_files]: { ...output.artifact[Tools.ingest_files] },
+          };
+          if (!res.headersSent) {
+            return attachment;
+          }
+          res.write(`event: attachment\ndata: ${JSON.stringify(attachment)}\n\n`);
+          return attachment;
+        })().catch((error) => {
+          logger.error('Error processing ingest_files artifact:', error);
           return null;
         }),
       );

@@ -116,17 +116,57 @@ function loadAndFormatTools({ directory, adminFilter = [], adminIncluded = [] })
  * @param {StructuredTool} tool - The StructuredTool to format.
  * @returns {FunctionTool} The OpenAI Assistant Tool.
  */
+const disallowedSchemaKeys = new Set([
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'oneOf',
+  'anyOf',
+  'allOf',
+  '$ref',
+  'definitions',
+]);
+
+const sanitizeSchemaNode = (node) => {
+  if (Array.isArray(node)) {
+    return node.map(sanitizeSchemaNode);
+  }
+  if (!node || typeof node !== 'object') {
+    return node;
+  }
+
+  const clone = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (disallowedSchemaKeys.has(key)) {
+      if (key === 'exclusiveMinimum' && typeof value === 'number') {
+        if (clone.minimum == null) {
+          clone.minimum = Math.max(1, Math.floor(value) + 1);
+        }
+      } else if (key === 'exclusiveMaximum' && typeof value === 'number') {
+        if (clone.maximum == null) {
+          clone.maximum = Math.ceil(value) - 1;
+        }
+      }
+      continue;
+    }
+    clone[key] = sanitizeSchemaNode(value);
+  }
+  return clone;
+};
+
+const sanitizeToolSchema = (schema) => sanitizeSchemaNode(schema);
+
 function formatToOpenAIAssistantTool(tool) {
   return {
     type: Tools.function,
     [Tools.function]: {
       name: tool.name,
       description: tool.description,
-      parameters: zodToJsonSchema(tool.schema),
+      parameters: sanitizeToolSchema(zodToJsonSchema(tool.schema)),
     },
   };
 }
 
 module.exports = {
   loadAndFormatTools,
+  sanitizeToolSchema,
 };

@@ -20,7 +20,13 @@ const {
   deleteMessagesSince,
   deleteMessages,
 } = require('./Message');
-const { getConvoTitle, getConvo, saveConvo, deleteConvos } = require('./Conversation');
+const {
+  getConvoTitle,
+  getConvo,
+  saveConvo,
+  deleteConvos,
+  getConvoFiles,
+} = require('./Conversation');
 const { getPreset, getPresets, savePreset, deletePresets } = require('./Preset');
 const { File } = require('~/db/models');
 
@@ -54,6 +60,7 @@ module.exports = {
   getConvo,
   saveConvo,
   deleteConvos,
+  getConvoFiles,
 
   getPreset,
   getPresets,

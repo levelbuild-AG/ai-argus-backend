@@ -39,6 +39,7 @@ const {
 } = require('../');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { createFileSearchTool, primeFiles: primeSearchFiles } = require('./fileSearch');
+const { createIngestFilesTool } = require('./ingestFiles');
 const { getUserPluginAuthValue } = require('~/server/services/PluginService');
 const { createMCPTool, createMCPTools } = require('~/server/services/MCP');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
@@ -106,6 +107,16 @@ const validateTools = async (user, tools = []) => {
     logger.error('[validateTools] There was a problem validating tools', err);
     throw new Error(err);
   }
+};
+
+const buildIngestToolContext = (files) => {
+  if (!files || files.length === 0) {
+    return `- Note: The ${Tools.ingest_files} tool is available but no files are currently loaded. Request the user to upload documents to ingest.`;
+  }
+
+  return `- Note: Use the ${Tools.ingest_files} tool to fetch context from:\n${files
+    .map((file) => `\t- ${file.filename}`)
+    .join('\n')}`;
 };
 
 /** @typedef {typeof import('@langchain/core/tools').Tool} ToolConstructor */
@@ -307,6 +318,21 @@ const loadTools = async ({
           files,
           entity_id: agent?.id,
           fileCitations,
+        });
+      };
+      continue;
+    } else if (tool === Tools.ingest_files) {
+      requestedTools[tool] = async () => {
+        const { files } = await primeSearchFiles({
+          ...options,
+          agentId: agent?.id,
+          excludeAgentResources: true,
+        });
+        toolContextMap[tool] = buildIngestToolContext(files);
+
+        return createIngestFilesTool({
+          userId: user,
+          files,
         });
       };
       continue;

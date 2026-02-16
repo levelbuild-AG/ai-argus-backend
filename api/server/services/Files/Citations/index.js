@@ -59,21 +59,21 @@ async function processFileCitations({ user, appConfig, toolArtifact, toolCallId,
       appConfig.endpoints?.[EModelEndpoint.agents]?.minRelevanceScore ?? 0.45;
 
     const sources = toolArtifact[Tools.file_search].sources || [];
+    const turn = toolArtifact?.[Tools.file_search]?.turn;
     const filteredSources = sources.filter((source) => source.relevance >= minRelevanceScore);
-    if (filteredSources.length === 0) {
-      logger.debug(
-        `[processFileCitations] No sources above relevance threshold of ${minRelevanceScore}`,
-      );
+    const selectedSources = filteredSources.length > 0
+      ? applyCitationLimits(filteredSources, maxCitations, maxCitationsPerFile)
+      : applyCitationLimits(sources, maxCitations, maxCitationsPerFile);
+    if (selectedSources.length === 0) {
+      logger.debug('[processFileCitations] No sources available to attach after applying limits');
       return null;
     }
-
-    const selectedSources = applyCitationLimits(filteredSources, maxCitations, maxCitationsPerFile);
     const enhancedSources = await enhanceSourcesWithMetadata(selectedSources, appConfig);
 
     if (enhancedSources.length > 0) {
       const fileSearchAttachment = {
         type: Tools.file_search,
-        [Tools.file_search]: { sources: enhancedSources },
+        [Tools.file_search]: { sources: enhancedSources, ...(turn != null ? { turn } : {}) },
         toolCallId: toolCallId,
         messageId: metadata.run_id,
         conversationId: metadata.thread_id,

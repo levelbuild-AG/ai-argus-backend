@@ -51,6 +51,7 @@ const { getLogStores } = require('~/cache');
 const systemTools = {
   [Tools.execute_code]: true,
   [Tools.file_search]: true,
+  [Tools.ingest_files]: true,
   [Tools.web_search]: true,
 };
 
