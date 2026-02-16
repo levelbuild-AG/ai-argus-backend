@@ -9,6 +9,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### External API
+
+- 🚀 Initial release of `/ext/v2` external API, covering conversations, messages (stream + non-stream), files (global + conversation scoped), agents, endpoints, models, and the meta/health surface.
+- 🔒 Uses external API authentication (via `x-user-*` headers) instead of Zitadel bearer tokens.
+- 📎 Enhanced streaming + non-streaming message responses to forward structured attachments, citations, tool events, and other assistant metadata. SSE emits human-readable event types (`assistant.delta`, `tool.result`, `attachment`, etc.).
+
+### Backend Changes
+
+- ✨ feat(tools): Add `ingest_files` tool for RAG-based context retrieval
+- 🔧 fix(agents): Abort middleware now correctly saves partial message text
+- 🔧 fix(files): File uploads now fail loudly when embedding fails (removed silent fallback)
+- 🧹 chore: Remove ext/v1 API and Zitadel authentication (replaced by ext/v2)
+
 ### ✨ New Features
 
 - ✨ feat: implement search parameter updates by **@mawburn** in [#7151](https://github.com/danny-avila/LibreChat/pull/7151)
