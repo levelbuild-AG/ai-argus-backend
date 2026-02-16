@@ -27,10 +27,12 @@ const edit = require('./edit');
 const keys = require('./keys');
 const user = require('./user');
 const mcp = require('./mcp');
+const ext = require('./ext');
 
 module.exports = {
   mcp,
   edit,
+  ext,
   auth,
   keys,
   user,

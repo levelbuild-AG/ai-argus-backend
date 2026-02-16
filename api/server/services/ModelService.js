@@ -26,6 +26,66 @@ const splitAndTrim = (input) => {
 
 const { openAIApiKey, userProvidedOpenAI } = require('./Config/EndpointService').config;
 
+const toUserId = (user) => {
+  if (!user) {
+    return undefined;
+  }
+  if (typeof user === 'string') {
+    return user;
+  }
+  return user.id || user.user || user.userId;
+};
+
+const DEFAULT_ENDPOINT_TAGS = {
+  [EModelEndpoint.openAI]: ['chat'],
+  [EModelEndpoint.azureOpenAI]: ['chat'],
+  [EModelEndpoint.assistants]: ['chat', 'tools'],
+  [EModelEndpoint.azureAssistants]: ['chat', 'tools'],
+  [EModelEndpoint.anthropic]: ['chat'],
+  [EModelEndpoint.google]: ['chat'],
+  [EModelEndpoint.bedrock]: ['chat'],
+};
+
+const normalizeModelDescriptor = (model, endpoint) => {
+  if (!model) {
+    return null;
+  }
+
+  if (typeof model === 'string') {
+    return {
+      id: model,
+      name: model,
+      endpoint,
+      contextWindow: null,
+      inputPrice: null,
+      outputPrice: null,
+      tags: [],
+    };
+  }
+
+  const id = model.id || model.name || model.model || model.slug;
+  if (!id) {
+    return null;
+  }
+
+  const fallbackTags = DEFAULT_ENDPOINT_TAGS[endpoint] || [];
+  const derivedTags = Array.isArray(model.tags)
+    ? model.tags
+    : Array.isArray(model.capabilities)
+      ? model.capabilities
+      : null;
+
+  return {
+    id,
+    name: model.label || model.name || id,
+    endpoint,
+    contextWindow: model.contextWindow ?? model.context ?? null,
+    inputPrice: model.inputPrice ?? null,
+    outputPrice: model.outputPrice ?? null,
+    tags: derivedTags ?? fallbackTags,
+  };
+};
+
 /**
  * Fetches OpenAI models from the specified base API path or Azure, based on the provided configuration.
  *
@@ -341,6 +401,35 @@ const getBedrockModels = () => {
   return models;
 };
 
+const MODEL_ENDPOINT_FETCHERS = {
+  [EModelEndpoint.openAI]: ({ user }) => getOpenAIModels({ user: toUserId(user) }),
+  [EModelEndpoint.azureOpenAI]: ({ user }) =>
+    getOpenAIModels({ user: toUserId(user), azure: true }),
+  [EModelEndpoint.assistants]: () => getOpenAIModels({ assistants: true }),
+  [EModelEndpoint.azureAssistants]: () => getOpenAIModels({ azureAssistants: true }),
+  [EModelEndpoint.anthropic]: ({ user }) => getAnthropicModels({ user: toUserId(user) }),
+  [EModelEndpoint.google]: () => Promise.resolve(getGoogleModels()),
+  [EModelEndpoint.bedrock]: () => Promise.resolve(getBedrockModels()),
+};
+
+const isSupportedModelEndpoint = (endpoint) => Boolean(MODEL_ENDPOINT_FETCHERS[endpoint]);
+
+const getModelsForEndpoint = async ({ endpoint, user, signal } = {}) => {
+  if (!isSupportedModelEndpoint(endpoint)) {
+    const unsupportedError = new Error(`Unsupported endpoint: ${endpoint}`);
+    unsupportedError.code = 'UNSUPPORTED_MODEL_ENDPOINT';
+    throw unsupportedError;
+  }
+
+  const fetcher = MODEL_ENDPOINT_FETCHERS[endpoint];
+  const result = await fetcher({ endpoint, user, signal });
+  const list = Array.isArray(result) ? result : [];
+
+  return list
+    .map((model) => normalizeModelDescriptor(model, endpoint))
+    .filter(Boolean);
+};
+
 module.exports = {
   fetchModels,
   splitAndTrim,
@@ -349,4 +438,6 @@ module.exports = {
   getChatGPTBrowserModels,
   getAnthropicModels,
   getGoogleModels,
+  getModelsForEndpoint,
+  isSupportedModelEndpoint,
 };

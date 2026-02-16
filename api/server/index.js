@@ -31,7 +31,70 @@ const externalUserIdMiddleware = require('./middleware/externalUserId');
 const { seedDatabase } = require('~/models');
 const routes = require('./routes');
 
-const { PORT, HOST, ALLOW_SOCIAL_LOGIN, DISABLE_COMPRESSION, TRUST_PROXY } = process.env ?? {};
+const {
+  PORT,
+  HOST,
+  ALLOW_SOCIAL_LOGIN,
+  DISABLE_COMPRESSION,
+  TRUST_PROXY,
+  EXTERNAL_API_ENABLED,
+} = process.env ?? {};
+
+const boolTrue = new Set(['1', 'true', 'yes', 'on']);
+const parseCsv = (value = '') =>
+  value
+    .split(',')
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+const buildCorsOptions = () => {
+  const allowCredentials = boolTrue.has((process.env.CORS_ALLOW_CREDENTIALS || 'false').toLowerCase());
+  const rawOrigins = process.env.CORS_ALLOWED_ORIGINS ?? '*';
+  const parsedOrigins = rawOrigins === '*' ? ['*'] : parseCsv(rawOrigins);
+  const wildcard = parsedOrigins.includes('*');
+  let normalizedOrigins = wildcard ? parsedOrigins.filter((origin) => origin !== '*') : parsedOrigins;
+
+  if (allowCredentials && wildcard) {
+    logger.warn('[cors] Removing wildcard origin because credentials are enabled; set CORS_ALLOWED_ORIGINS to explicit domains.');
+  }
+
+  const allowAllOrigins = (!allowCredentials && wildcard) || normalizedOrigins.length === 0;
+
+  const originHandler = allowAllOrigins
+    ? (_origin, callback) => callback(null, true)
+    : (origin, callback) => {
+        if (!origin || normalizedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        logger.warn(`[cors] Blocked origin ${origin}`);
+        return callback(null, false);
+      };
+
+  const allowedHeaders = parseCsv(process.env.CORS_ALLOWED_HEADERS || '');
+  if (allowedHeaders.length === 0) {
+    allowedHeaders.push('Authorization', 'Content-Type', 'Accept', 'X-Requested-With');
+  }
+
+  const methods = parseCsv(process.env.CORS_ALLOWED_METHODS || 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  const exposedHeaders = parseCsv(process.env.CORS_EXPOSED_HEADERS || '');
+
+  const options = {
+    origin: originHandler,
+    credentials: allowCredentials,
+    methods,
+    allowedHeaders,
+    optionsSuccessStatus: 204,
+    maxAge: Number(process.env.CORS_MAX_AGE || 600),
+  };
+
+  if (exposedHeaders.length > 0) {
+    options.exposedHeaders = exposedHeaders;
+  }
+
+  return options;
+};
+
+const corsOptions = buildCorsOptions();
 
 // Allow PORT=0 to be used for automatic free port assignment
 const port = isNaN(Number(PORT)) ? 3080 : Number(PORT);
@@ -80,10 +143,11 @@ const startServer = async () => {
 
   /* Middleware */
   app.use(noIndex);
-  app.use(express.json({ limit: '3mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '3mb' }));
+  app.use(express.json({ limit: '512mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '512mb' }));
   app.use(mongoSanitize());
-  app.use(cors());
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
   app.use(cookieParser());
   app.use(externalUserIdMiddleware);
 
@@ -152,6 +216,16 @@ const startServer = async () => {
 
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
+
+  const externalApiEnabled = isEnabled(EXTERNAL_API_ENABLED);
+  if (externalApiEnabled) {
+    if (routes.ext?.v2) {
+      app.use('/ext/v2', routes.ext.v2);
+      logger.info('External API mounted at /ext/v2');
+    } else {
+      logger.warn('EXTERNAL_API_ENABLED is true but /ext/v2 router is missing');
+    }
+  }
 
   app.use(ErrorController);
 
