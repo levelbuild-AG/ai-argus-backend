@@ -69,12 +69,19 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
   /** @type {ArtifactPromises} */
   const artifactPromises = [];
   const { contentParts, aggregateContent } = createContentAggregator();
-  const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
+  const streamCitationState = { tailSize: 64, runs: new Map() };
+  const toolEndCallback = createToolEndCallback({
+    req,
+    res,
+    artifactPromises,
+    streamCitationState,
+  });
   const eventHandlers = getDefaultHandlers({
     res,
     aggregateContent,
     toolEndCallback,
     collectedUsage,
+    streamCitationState,
   });
 
   if (!endpointOption.agent) {
