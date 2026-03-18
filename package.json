@@ -59,6 +59,7 @@
     "test:client": "cd client && npm run test:ci",
     "test:api": "cd api && npm run test --",
     "test:api:ci": "npm run test:ci --workspace api",
+    "test:mt-e2e": "npm --workspace api run test -- mt.e2e.spec.js",
     "test": "npm run test:api",
     "e2e:update": "playwright test --config=e2e/playwright.config.js --update-snapshots",
     "e2e:report": "npx playwright show-report e2e/playwright-report",
