@@ -93,13 +93,14 @@ async function forkConversation({
   splitAtTarget = false,
   latestMessageId,
   builderFactory = createImportBatchBuilder,
+  models,
 }) {
   try {
-    const originalConvo = await getConvo(requestUserId, originalConvoId);
+    const originalConvo = await getConvo(requestUserId, originalConvoId, models);
     let originalMessages = await getMessages({
       user: requestUserId,
       conversationId: originalConvoId,
-    });
+    }, undefined, models);
 
     let targetMessageId = targetId;
     if (splitAtTarget && !latestMessageId) {
@@ -109,7 +110,7 @@ async function forkConversation({
       targetMessageId = latestMessageId;
     }
 
-    const importBatchBuilder = builderFactory(requestUserId);
+    const importBatchBuilder = builderFactory(requestUserId, models);
     importBatchBuilder.startConversation(originalConvo.endpoint ?? EModelEndpoint.openAI);
 
     let messagesToClone = [];
@@ -146,11 +147,11 @@ async function forkConversation({
       return result;
     }
 
-    const conversation = await getConvo(requestUserId, result.conversation.conversationId);
+    const conversation = await getConvo(requestUserId, result.conversation.conversationId, models);
     const messages = await getMessages({
       user: requestUserId,
       conversationId: conversation.conversationId,
-    });
+    }, undefined, models);
 
     return {
       conversation,
@@ -360,9 +361,9 @@ function splitAtTargetLevel(messages, targetMessageId) {
  * @param {string} params.conversationId - The ID of the conversation to duplicate.
  * @returns {Promise<{ conversation: TConversation, messages: TMessage[] }>} The duplicated conversation and messages.
  */
-async function duplicateConversation({ userId, conversationId }) {
+async function duplicateConversation({ userId, conversationId, models }) {
   // Get original conversation
-  const originalConvo = await getConvo(userId, conversationId);
+  const originalConvo = await getConvo(userId, conversationId, models);
   if (!originalConvo) {
     throw new Error('Conversation not found');
   }
@@ -371,14 +372,14 @@ async function duplicateConversation({ userId, conversationId }) {
   const originalMessages = await getMessages({
     user: userId,
     conversationId,
-  });
+  }, undefined, models);
 
   const messagesToClone = getMessagesUpToTargetLevel(
     originalMessages,
     originalMessages[originalMessages.length - 1].messageId,
   );
 
-  const importBatchBuilder = createImportBatchBuilder(userId);
+  const importBatchBuilder = createImportBatchBuilder(userId, models);
   importBatchBuilder.startConversation(originalConvo.endpoint ?? EModelEndpoint.openAI);
 
   cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);
@@ -393,11 +394,11 @@ async function duplicateConversation({ userId, conversationId }) {
     `user: ${userId} | New conversation "${originalConvo.title}" duplicated from conversation ID ${conversationId}`,
   );
 
-  const conversation = await getConvo(userId, result.conversation.conversationId);
+  const conversation = await getConvo(userId, result.conversation.conversationId, models);
   const messages = await getMessages({
     user: userId,
     conversationId: conversation.conversationId,
-  });
+  }, undefined, models);
 
   return {
     conversation,

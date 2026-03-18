@@ -47,11 +47,12 @@ async function importChatBotUiConvo(
   jsonData,
   requestUserId,
   builderFactory = createImportBatchBuilder,
+  models,
 ) {
   // this have been tested with chatbot-ui V1 export https://github.com/mckaywrigley/chatbot-ui/tree/b865b0555f53957e96727bc0bbb369c9eaecd83b#legacy-code
   try {
     /** @type {ImportBatchBuilder} */
-    const importBatchBuilder = builderFactory(requestUserId);
+    const importBatchBuilder = builderFactory(requestUserId, models);
 
     for (const historyItem of jsonData.history) {
       importBatchBuilder.startConversation(EModelEndpoint.openAI);
@@ -83,10 +84,11 @@ async function importLibreChatConvo(
   jsonData,
   requestUserId,
   builderFactory = createImportBatchBuilder,
+  models,
 ) {
   try {
     /** @type {ImportBatchBuilder} */
-    const importBatchBuilder = builderFactory(requestUserId);
+    const importBatchBuilder = builderFactory(requestUserId, models);
     const options = jsonData.options || {};
 
     /* Endpoint configuration */
@@ -179,6 +181,7 @@ async function importChatGptConvo(
   jsonData,
   requestUserId,
   builderFactory = createImportBatchBuilder,
+  models,
 ) {
   try {
     const importBatchBuilder = builderFactory(requestUserId);

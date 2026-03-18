@@ -56,7 +56,12 @@ const { legacy } = anthropicSettings;
 class AnthropicClient extends BaseClient {
   constructor(apiKey, options = {}) {
     super(apiKey, options);
-    this.apiKey = apiKey || process.env.ANTHROPIC_API_KEY;
+    if (apiKey == null || (typeof apiKey === 'string' && apiKey.trim() === '')) {
+      throw new Error(
+        'AnthropicClient requires explicit apiKey. Do not rely on process.env.',
+      );
+    }
+    this.apiKey = apiKey;
     this.userLabel = HUMAN_PROMPT;
     this.assistantLabel = AI_PROMPT;
     this.contextStrategy = options.contextStrategy
@@ -942,7 +947,7 @@ class AnthropicClient extends BaseClient {
   ${convo}
   </conversation_context>
   
-  Please generate a title for this conversation.`;
+  Please generate a title for this conversation. Use the same language as the user's message (e.g. if the user wrote in German, the title must be in German).`;
 
       const titleMessage = { role: 'user', content };
       const requestOptions = {

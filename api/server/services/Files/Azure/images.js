@@ -9,28 +9,31 @@ const { saveBufferToAzure } = require('./crud');
 /**
  * Uploads an image file to Azure Blob Storage.
  * It resizes and converts the image similar to your Firebase implementation.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId, appConfig. Uses tenant-routed container and blob name.
  *
  * @param {Object} params
- * @param {object} params.req - The Express request object.
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {object} params.appConfig - Application config (e.g., imageOutputType)
  * @param {Express.Multer.File} params.file - The file object.
  * @param {string} params.file_id - The file id.
  * @param {EModelEndpoint} params.endpoint - The endpoint parameters.
  * @param {string} [params.resolution='high'] - The image resolution.
  * @param {string} [params.basePath='images'] - The base folder within the container.
- * @param {string} [params.containerName] - The Azure Blob container name.
  * @returns {Promise<{ filepath: string, bytes: number, width: number, height: number }>}
  */
 async function uploadImageToAzure({
-  req,
+  tenantId,
+  userId,
+  appConfig,
   file,
   file_id,
   endpoint,
   resolution = 'high',
   basePath = 'images',
-  containerName,
 }) {
   try {
-    const appConfig = req.config;
     const inputFilePath = file.path;
     const inputBuffer = await fs.promises.readFile(inputFilePath);
     const {
@@ -39,7 +42,6 @@ async function uploadImageToAzure({
       height,
     } = await resizeImageBuffer(inputBuffer, resolution, endpoint);
     const extension = path.extname(inputFilePath);
-    const userId = req.user.id;
     let webPBuffer;
     let fileName = `${file_id}__${path.basename(inputFilePath)}`;
     const targetExtension = `.${appConfig.imageOutputType}`;
@@ -55,11 +57,11 @@ async function uploadImageToAzure({
       }
     }
     const downloadURL = await saveBufferToAzure({
+      tenantId,
       userId,
       buffer: webPBuffer,
       fileName,
       basePath,
-      containerName,
     });
     await fs.promises.unlink(inputFilePath);
     const bytes = Buffer.byteLength(webPBuffer);
@@ -87,23 +89,25 @@ async function prepareAzureImageURL(req, file) {
 
 /**
  * Uploads and processes a user's avatar to Azure Blob Storage.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId. Uses tenant-routed container and blob name.
  *
  * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
  * @param {Buffer} params.buffer - The avatar image buffer.
  * @param {string} params.userId - The user's id.
  * @param {string} params.manual - Flag to indicate manual update.
  * @param {string} [params.agentId] - Optional agent ID if this is an agent avatar.
  * @param {string} [params.basePath='images'] - The base folder within the container.
- * @param {string} [params.containerName] - The Azure Blob container name.
- * @returns {Promise<string>} The URL of the avatar.
+ * @returns {Promise<string>} The URL of the avatar (with tenant prefix).
  */
 async function processAzureAvatar({
+  tenantId,
   buffer,
   userId,
   manual,
   agentId,
   basePath = 'images',
-  containerName,
 }) {
   try {
     const metadata = await sharp(buffer).metadata();
@@ -116,11 +120,11 @@ async function processAzureAvatar({
       : `avatar-${timestamp}.${extension}`;
 
     const downloadURL = await saveBufferToAzure({
+      tenantId,
       userId,
       buffer,
       fileName,
       basePath,
-      containerName,
     });
     const isManual = manual === 'true';
     const url = `${downloadURL}?manual=${isManual}`;

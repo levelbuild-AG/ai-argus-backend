@@ -33,6 +33,9 @@ export const initializeS3 = (): S3Client | null => {
     region,
     // Conditionally add the endpoint if it is provided
     ...(endpoint ? { endpoint } : {}),
+    // MT-IT: always use path-style addressing so MinIO endpoints like http://minio:9000 work
+    // without relying on bucket-based DNS such as bucket-a.minio.
+    forcePathStyle: true as any,
   };
 
   if (accessKeyId && secretAccessKey) {

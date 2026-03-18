@@ -77,9 +77,10 @@ const primeFiles = async (options) => {
  * @param {Array<{ file_id: string; filename: string }>} options.files
  * @param {string} [options.entity_id]
  * @param {boolean} [options.fileCitations=false] - Whether to include citation instructions
+ * @param {string} [options.tenantId] - Tenant ID for rag_api routing
  * @returns
  */
-const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = false }) => {
+const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = false, tenantId }) => {
   return tool(
     async ({ query }, runnableConfig) => {
       if (files.length === 0) {
@@ -88,6 +89,15 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
       const jwtToken = generateShortLivedToken(userId);
       if (!jwtToken) {
         return ['There was an error authenticating the file search request.', undefined];
+      }
+
+      // Build headers with tenant ID if available
+      const headers = {
+        Authorization: `Bearer ${jwtToken}`,
+        'Content-Type': 'application/json',
+      };
+      if (tenantId) {
+        headers['X-Tenant-ID'] = tenantId;
       }
 
       const turn = runnableConfig?.toolCall?.turn ?? 0;
@@ -114,10 +124,7 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
       const queryPromises = files.map((file) =>
         axios
           .post(`${process.env.RAG_API_URL}/query`, createQueryBody(file), {
-            headers: {
-              Authorization: `Bearer ${jwtToken}`,
-              'Content-Type': 'application/json',
-            },
+            headers,
           })
           .catch((error) => {
             logger.error('Error encountered in `file_search` while querying file:', error);

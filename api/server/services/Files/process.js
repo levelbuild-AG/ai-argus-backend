@@ -324,7 +324,8 @@ const processFileURL = async ({ fileStrategy, userId, URL, fileName, basePath, c
 const processImageFile = async ({ req, res, metadata, returnFile = false }) => {
   const { file } = req;
   const appConfig = req.config;
-  const source = getFileStrategy(appConfig, { isImage: true });
+  const tenantId = req?.tenantContext?.tenantId;
+  const source = await getFileStrategy(appConfig, { isImage: true, tenantId });
   const { handleImageUpload } = getStrategyFunctions(source);
   const { file_id, temp_file_id, endpoint } = metadata;
 
@@ -371,7 +372,8 @@ const processImageFile = async ({ req, res, metadata, returnFile = false }) => {
  */
 const uploadImageBuffer = async ({ req, context, metadata = {}, resize = true }) => {
   const appConfig = req.config;
-  const source = getFileStrategy(appConfig, { isImage: true });
+  const tenantId = req?.tenantContext?.tenantId;
+  const source = await getFileStrategy(appConfig, { isImage: true, tenantId });
   const { saveBuffer } = getStrategyFunctions(source);
   let { buffer, width, height, bytes, filename, file_id, type } = metadata;
   if (resize) {
@@ -644,7 +646,8 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   // Dual storage pattern for RAG files: Storage + Vector DB
   let storageResult, embeddingResult;
   const isImageFile = file.mimetype.startsWith('image');
-  const source = getFileStrategy(appConfig, { isImage: isImageFile });
+  const tenantId = req?.tenantContext?.tenantId;
+  const source = await getFileStrategy(appConfig, { isImage: isImageFile, tenantId });
 
   if (tool_resource === EToolResources.file_search) {
     // FIRST: Upload to Storage for permanent backup (S3/local/etc.)
@@ -801,6 +804,7 @@ const processOpenAIImageOutput = async ({ req, buffer, file_id, filename, fileEx
   const currentDate = new Date();
   const formattedDate = currentDate.toISOString();
   const appConfig = req.config;
+  const tenantId = req?.tenantContext?.tenantId;
   const _file = await convertImage(req, buffer, undefined, `${file_id}${fileExt}`);
 
   // Create only one file record with the correct information
@@ -811,7 +815,7 @@ const processOpenAIImageOutput = async ({ req, buffer, file_id, filename, fileEx
     type: mime.getType(fileExt),
     createdAt: formattedDate,
     updatedAt: formattedDate,
-    source: getFileStrategy(appConfig, { isImage: true }),
+    source: await getFileStrategy(appConfig, { isImage: true, tenantId }),
     context: FileContext.assistants_output,
     file_id,
     filename,
@@ -953,7 +957,8 @@ async function saveBase64Image(
   }
 
   const image = await resizeImageBuffer(inputBuffer, effectiveResolution, endpoint);
-  const source = getFileStrategy(appConfig, { isImage: true });
+  const tenantId = req?.tenantContext?.tenantId;
+  const source = await getFileStrategy(appConfig, { isImage: true, tenantId });
   const { saveBuffer } = getStrategyFunctions(source);
   const filepath = await saveBuffer({
     userId: req.user.id,

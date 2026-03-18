@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { ProxyAgent, fetch } = require('undici');
 const { Tool } = require('@langchain/core/tools');
 const { logger } = require('@librechat/data-schemas');
-const { getImageBasename } = require('@librechat/api');
+const { getImageBasename, isMultiTenancyEnabled } = require('@librechat/api');
 const { FileContext, ContentTypes } = require('librechat-data-provider');
 const extractBaseURL = require('~/utils/extractBaseURL');
 
@@ -21,6 +21,8 @@ class DALLE3 extends Tool {
 
     this.userId = fields.userId;
     this.fileStrategy = fields.fileStrategy;
+    /** @type {string | undefined} Required in multi-tenant mode; used for tenant config, no env fallback. */
+    this.tenantId = fields.tenantId;
     /** @type {boolean} */
     this.isAgent = fields.isAgent;
     if (fields.processFileURL) {
@@ -28,20 +30,31 @@ class DALLE3 extends Tool {
       this.processFileURL = fields.processFileURL.bind(this);
     }
 
-    let apiKey = fields.DALLE3_API_KEY ?? fields.DALLE_API_KEY ?? this.getApiKey();
-    const config = { apiKey };
-    if (process.env.DALLE_REVERSE_PROXY) {
-      config.baseURL = extractBaseURL(process.env.DALLE_REVERSE_PROXY);
+    let apiKey;
+    if (isMultiTenancyEnabled() && fields.tenantId) {
+      apiKey = fields.DALLE3_API_KEY ?? fields.DALLE_API_KEY ?? '';
+      if (!apiKey && !this.override) {
+        throw new Error(
+          `Tenant '${fields.tenantId}' has DALL-E enabled but no API key provided. Configure openAiApiKey.`,
+        );
+      }
+    } else {
+      apiKey = fields.DALLE3_API_KEY ?? fields.DALLE_API_KEY ?? this.getApiKey();
     }
-
-    if (process.env.DALLE3_AZURE_API_VERSION && process.env.DALLE3_BASEURL) {
-      config.baseURL = process.env.DALLE3_BASEURL;
-      config.defaultQuery = { 'api-version': process.env.DALLE3_AZURE_API_VERSION };
-      config.defaultHeaders = {
-        'api-key': process.env.DALLE3_API_KEY,
-        'Content-Type': 'application/json',
-      };
-      config.apiKey = process.env.DALLE3_API_KEY;
+    const config = { apiKey };
+    if (!fields.tenantId) {
+      if (process.env.DALLE_REVERSE_PROXY) {
+        config.baseURL = extractBaseURL(process.env.DALLE_REVERSE_PROXY);
+      }
+      if (process.env.DALLE3_AZURE_API_VERSION && process.env.DALLE3_BASEURL) {
+        config.baseURL = process.env.DALLE3_BASEURL;
+        config.defaultQuery = { 'api-version': process.env.DALLE3_AZURE_API_VERSION };
+        config.defaultHeaders = {
+          'api-key': process.env.DALLE3_API_KEY,
+          'Content-Type': 'application/json',
+        };
+        config.apiKey = process.env.DALLE3_API_KEY;
+      }
     }
 
     if (process.env.PROXY) {
@@ -97,6 +110,11 @@ class DALLE3 extends Tool {
   }
 
   getApiKey() {
+    if (isMultiTenancyEnabled() && this.tenantId) {
+      throw new Error(
+        'In multi-tenant mode DALL-E API key must be passed via constructor (openAiApiKey from tenant config).',
+      );
+    }
     const apiKey = process.env.DALLE3_API_KEY ?? process.env.DALLE_API_KEY ?? '';
     if (!apiKey && !this.override) {
       throw new Error('Missing DALLE_API_KEY environment variable.');

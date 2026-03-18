@@ -36,6 +36,21 @@ export function isEnabled(value?: string | boolean | null | undefined): boolean 
 export const isUserProvided = (value?: string): boolean => value === AuthType.USER_PROVIDED;
 
 /**
+ * Checks if multi-tenancy is enabled via the MULTI_TENANCY_ENABLED environment variable.
+ * When disabled (default), the system operates in single-tenant mode.
+ *
+ * @returns Returns `true` if MULTI_TENANCY_ENABLED is set to 'true', otherwise returns `false`.
+ * @example
+ *
+ * isMultiTenancyEnabled(); // returns false (default)
+ * // With MULTI_TENANCY_ENABLED=true
+ * isMultiTenancyEnabled(); // returns true
+ */
+export function isMultiTenancyEnabled(): boolean {
+  return isEnabled(process.env.MULTI_TENANCY_ENABLED);
+}
+
+/**
  * @param values
  */
 export function optionalChainWithEmptyCheck(

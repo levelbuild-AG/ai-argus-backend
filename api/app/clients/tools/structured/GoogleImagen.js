@@ -8,6 +8,8 @@ const { Tool } = require('@langchain/core/tools');
 const { GoogleAuth } = require('google-auth-library');
 const { logger } = require('@librechat/data-schemas');
 const { FileContext, ContentTypes } = require('librechat-data-provider');
+const { loadServiceKey, isMultiTenancyEnabled } = require('@librechat/api');
+const { getTenantConfigService } = require('~/server/services/Config/TenantConfigService');
 const paths = require('~/config/paths');
 
 const displayMessage =
@@ -19,7 +21,9 @@ class GoogleImagenAPI extends Tool {
     /** @type {string} */
     this.userId = fields.userId;
     /** @type {ServerRequest | undefined} */
-    this.req = fields.req;
+    this.req = fields.req; // Kept for uploadImageBuffer and other non-credential uses
+    /** @type {string | undefined} */
+    this.tenantId = fields.tenantId; // REQUIRED in multi-tenant mode, passed explicitly
     /** @type {boolean} */
     this.override = fields.override ?? false;
     /** @type {boolean} */
@@ -122,26 +126,77 @@ class GoogleImagenAPI extends Tool {
     return `![generated image](/${imageUrl})`;
   }
 
-  async getAccessToken() {
-    const keyFile = process.env.GOOGLE_SERVICE_KEY_FILE;
-    if (!keyFile && !this.override) {
-      throw new Error('Missing GOOGLE_SERVICE_KEY_FILE environment variable for Google Imagen.');
+  /**
+   * Get Google service account credentials from tenant config or env.
+   *
+   * Uses this.tenantId (passed explicitly), NOT req.user.tenantId.
+   * This ensures tools work in background jobs, SSE, and other non-request contexts.
+   *
+   * The underlying helper `loadServiceKey` supports:
+   * - base64-encoded JSON
+   * - raw JSON string
+   * - URL returning JSON
+   * - filesystem path to JSON
+   *
+   * @returns {Promise<object|null>} Parsed service account JSON, or null if not configured
+   */
+  async getServiceAccount() {
+    let keySource;
+
+    if (isMultiTenancyEnabled() && this.tenantId) {
+      const service = getTenantConfigService();
+      const tenantConfig = await service.getTenantConfig(this.tenantId);
+      keySource = tenantConfig.secrets?.googleServiceKeyFile;
+
+      if (!keySource && !this.override) {
+        throw new Error(
+          `Tenant '${this.tenantId}' has Google Imagen enabled but missing required secret: googleServiceKeyFile`,
+        );
+      }
+    } else {
+      keySource = process.env.GOOGLE_SERVICE_KEY_FILE;
     }
 
-    const authOptions = {
-      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-    };
-    if (keyFile) {
-      authOptions.keyFile = keyFile;
+    if (!keySource) {
+      return null;
     }
-    const auth = new GoogleAuth(authOptions);
 
-    const client = await auth.getClient();
-    const accessToken = await client.getAccessToken();
-    return accessToken?.token || accessToken;
+    const serviceKey = await loadServiceKey(keySource);
+    if (!serviceKey && !this.override) {
+      throw new Error('Google service account could not be loaded for Google Imagen.');
+    }
+
+    return serviceKey;
   }
 
-  getProjectId() {
+  /**
+   * Get Google Cloud project ID from tenant config or env
+   * 
+   * CRITICAL: Uses this.tenantId (passed explicitly), NOT req.user.tenantId
+   * 
+   * @returns {Promise<string|undefined>} Project ID
+   */
+  async getProjectId() {
+    if (isMultiTenancyEnabled() && this.tenantId) {
+      // Multi-tenancy enabled: check tenant config first, then fall back to env
+      const service = getTenantConfigService();
+      const tenantConfig = await service.getTenantConfig(this.tenantId);
+      
+      // Check merged settings (could be in librechatSettings override)
+      // These settings might be in the merged config structure
+      const projectId = tenantConfig.settings?.GOOGLE_CLOUD_PROJECT || 
+                       tenantConfig.settings?.googleCloudProject ||
+                       process.env.GOOGLE_CLOUD_PROJECT;
+      
+      if (!projectId && !this.override) {
+        throw new Error(
+          `Tenant '${this.tenantId}' has Google Imagen enabled but missing required setting: GOOGLE_CLOUD_PROJECT or googleCloudProject`,
+        );
+      }
+      return projectId;
+    }
+    
+    // Single-tenant mode OR multi-tenant mode without tenantId: use env var
     const projectId = process.env.GOOGLE_CLOUD_PROJECT;
     if (!projectId && !this.override) {
       throw new Error('Missing GOOGLE_CLOUD_PROJECT environment variable for Google Imagen.');
@@ -149,12 +204,61 @@ class GoogleImagenAPI extends Tool {
     return projectId;
   }
 
-  getLocation() {
+  /**
+   * Get Google Vertex location from tenant config or env
+   * 
+   * CRITICAL: Uses this.tenantId (passed explicitly), NOT req.user.tenantId
+   * 
+   * @returns {Promise<string|undefined>} Location
+   */
+  async getLocation() {
+    if (isMultiTenancyEnabled() && this.tenantId) {
+      // Multi-tenancy enabled: check tenant config first, then fall back to env
+      const service = getTenantConfigService();
+      const tenantConfig = await service.getTenantConfig(this.tenantId);
+      
+      // Check merged settings (could be in librechatSettings override)
+      const location = tenantConfig.settings?.GOOGLE_VERTEX_LOCATION ||
+                       tenantConfig.settings?.GOOGLE_LOC ||
+                       tenantConfig.settings?.googleVertexLocation ||
+                       tenantConfig.settings?.googleLoc ||
+                       process.env.GOOGLE_VERTEX_LOCATION ||
+                       process.env.GOOGLE_LOC;
+      
+      if (!location && !this.override) {
+        throw new Error(
+          `Tenant '${this.tenantId}' has Google Imagen enabled but missing required setting: GOOGLE_VERTEX_LOCATION or GOOGLE_LOC`,
+        );
+      }
+      return location;
+    }
+    
+    // Single-tenant mode OR multi-tenant mode without tenantId: use env var
     const location = process.env.GOOGLE_VERTEX_LOCATION || process.env.GOOGLE_LOC;
     if (!location && !this.override) {
       throw new Error('Missing GOOGLE_VERTEX_LOCATION or GOOGLE_LOC for Google Imagen.');
     }
     return location;
+  }
+
+  async getAccessToken() {
+    const serviceKey = await this.getServiceAccount();
+    if (!serviceKey && !this.override) {
+      throw new Error('Missing Google service account credentials for Google Imagen.');
+    }
+
+    const authOptions = {
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    };
+
+    if (serviceKey) {
+      authOptions.credentials = serviceKey;
+    }
+
+    const auth = new GoogleAuth(authOptions);
+    const client = await auth.getClient();
+    const accessToken = await client.getAccessToken();
+    return accessToken?.token || accessToken;
   }
 
   getModelVersion(modelOverride) {
@@ -207,8 +311,8 @@ class GoogleImagenAPI extends Tool {
   }
 
   async callImagenAPI(data) {
-    const projectId = this.getProjectId();
-    const location = this.getLocation();
+    const projectId = await this.getProjectId();
+    const location = await this.getLocation();
     const modelVersion = this.getModelVersion(data.model_version);
     const accessToken = await this.getAccessToken();
 

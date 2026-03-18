@@ -913,7 +913,7 @@ class GoogleClient extends BaseClient {
 
     let { prompt: payload } = await this.buildMessages([
       {
-        text: `Please generate ${titleInstruction}
+        text: `Please generate ${titleInstruction} Use the same language as the user's message (e.g. if the user wrote in German, the title must be in German).
 
     ${convo}
     

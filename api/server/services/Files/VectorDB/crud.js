@@ -4,6 +4,7 @@ const FormData = require('form-data');
 const { logger } = require('@librechat/data-schemas');
 const { FileSources } = require('librechat-data-provider');
 const { logAxiosError, generateShortLivedToken } = require('@librechat/api');
+const { getRagApiHeaders } = require('~/server/utils/ragApiClient');
 
 /**
  * Deletes a file from the vector database. This function takes a file object, constructs the full path, and
@@ -25,11 +26,11 @@ const deleteVectors = async (req, file) => {
     const jwtToken = generateShortLivedToken(req.user.id);
 
     return await axios.delete(`${process.env.RAG_API_URL}/documents`, {
-      headers: {
+      headers: getRagApiHeaders(req, {
         Authorization: `Bearer ${jwtToken}`,
         'Content-Type': 'application/json',
         accept: 'application/json',
-      },
+      }, 'VectorDB.deleteVectors'),
       data: [file.file_id],
     });
   } catch (error) {
@@ -86,11 +87,11 @@ async function uploadVectors({ req, file, file_id, entity_id, storageMetadata })
     const formHeaders = formData.getHeaders();
 
     const response = await axios.post(`${process.env.RAG_API_URL}/embed`, formData, {
-      headers: {
+      headers: getRagApiHeaders(req, {
         Authorization: `Bearer ${jwtToken}`,
         accept: 'application/json',
         ...formHeaders,
-      },
+      }, 'VectorDB.uploadVectors'),
     });
 
     const responseData = response.data;

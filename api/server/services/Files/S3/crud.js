@@ -10,6 +10,10 @@ const {
   HeadObjectCommand,
   DeleteObjectCommand,
 } = require('@aws-sdk/client-s3');
+const {
+  getTenantS3BucketAndKey,
+  requireTenantId,
+} = require('./tenantRouting');
 
 const bucketName = process.env.AWS_BUCKET_NAME;
 const defaultBasePath = 'images';
@@ -43,11 +47,6 @@ if (process.env.S3_REFRESH_EXPIRY_MS !== null && process.env.S3_REFRESH_EXPIRY_M
 }
 
 /**
- * Constructs the S3 key based on the base path, user ID, and file name.
- */
-const getS3Key = (basePath, userId, fileName) => `${basePath}/${userId}/${fileName}`;
-
-/**
  * Uploads a buffer to S3 and returns a signed URL.
  *
  * @param {Object} params
@@ -55,16 +54,28 @@ const getS3Key = (basePath, userId, fileName) => `${basePath}/${userId}/${fileNa
  * @param {Buffer} params.buffer - The buffer containing file data.
  * @param {string} params.fileName - The file name to use in S3.
  * @param {string} [params.basePath='images'] - The base path in the bucket.
+ * @param {string} [params.tenantId] - Tenant ID (required for tenant-scoped paths)
  * @returns {Promise<string>} Signed URL of the uploaded file.
  */
-async function saveBufferToS3({ userId, buffer, fileName, basePath = defaultBasePath }) {
-  const key = getS3Key(basePath, userId, fileName);
-  const params = { Bucket: bucketName, Key: key, Body: buffer };
+async function saveBufferToS3({ userId, buffer, fileName, basePath = defaultBasePath, tenantId }) {
+  // Require tenantId for tenant-scoped operations
+  requireTenantId(tenantId, 'saveBufferToS3');
+  
+  // Get tenant-routed bucket and key
+  const { bucket, key } = await getTenantS3BucketAndKey({
+    tenantId,
+    basePath,
+    userId,
+    fileName,
+    requireTenantPrefix: true,
+  });
+  
+  const params = { Bucket: bucket, Key: key, Body: buffer };
 
   try {
     const s3 = initializeS3();
     await s3.send(new PutObjectCommand(params));
-    return await getS3URL({ userId, fileName, basePath });
+    return await getS3URL({ userId, fileName, basePath, tenantId });
   } catch (error) {
     logger.error('[saveBufferToS3] Error uploading buffer to S3:', error.message);
     throw error;
@@ -79,6 +90,7 @@ async function saveBufferToS3({ userId, buffer, fileName, basePath = defaultBase
  * @param {string} params.userId - The user's unique identifier.
  * @param {string} params.fileName - The file name in S3.
  * @param {string} [params.basePath='images'] - The base path in the bucket.
+ * @param {string} [params.tenantId] - Tenant ID (required for tenant-scoped paths)
  * @param {string} [params.customFilename] - Custom filename for Content-Disposition header (overrides extracted filename).
  * @param {string} [params.contentType] - Custom content type for the response.
  * @returns {Promise<string>} A URL to access the S3 object
@@ -87,11 +99,23 @@ async function getS3URL({
   userId,
   fileName,
   basePath = defaultBasePath,
+  tenantId,
   customFilename = null,
   contentType = null,
 }) {
-  const key = getS3Key(basePath, userId, fileName);
-  const params = { Bucket: bucketName, Key: key };
+  // Require tenantId for tenant-scoped operations
+  requireTenantId(tenantId, 'getS3URL');
+  
+  // Get tenant-routed bucket and key
+  const { bucket, key } = await getTenantS3BucketAndKey({
+    tenantId,
+    basePath,
+    userId,
+    fileName,
+    requireTenantPrefix: true,
+  });
+  
+  const params = { Bucket: bucket, Key: key };
 
   // Add response headers if specified
   if (customFilename) {
@@ -119,14 +143,15 @@ async function getS3URL({
  * @param {string} params.URL - The source URL of the file.
  * @param {string} params.fileName - The file name to use in S3.
  * @param {string} [params.basePath='images'] - The base path in the bucket.
+ * @param {string} [params.tenantId] - Tenant ID (required for tenant-scoped paths)
  * @returns {Promise<string>} Signed URL of the uploaded file.
  */
-async function saveURLToS3({ userId, URL, fileName, basePath = defaultBasePath }) {
+async function saveURLToS3({ userId, URL, fileName, basePath = defaultBasePath, tenantId }) {
   try {
     const response = await fetch(URL);
     const buffer = await response.buffer();
     // Optionally you can call getBufferMetadata(buffer) if needed.
-    return await saveBufferToS3({ userId, buffer, fileName, basePath });
+    return await saveBufferToS3({ userId, buffer, fileName, basePath, tenantId });
   } catch (error) {
     logger.error('[saveURLToS3] Error uploading file from URL to S3:', error.message);
     throw error;
@@ -135,20 +160,28 @@ async function saveURLToS3({ userId, URL, fileName, basePath = defaultBasePath }
 
 /**
  * Deletes a file from S3.
+ * 
+ * CLEAN-SLATE: No legacy key format support. File must be stored with tenant prefix.
  *
  * @param {Object} params
- * @param {ServerRequest} params.req
- * @param {MongoFile} params.file - The file object to delete.
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {string} params.basePath - Base path (e.g., 'images', 'documents')
+ * @param {string} params.fileName - File name
  * @returns {Promise<void>}
  */
-async function deleteFileFromS3(req, file) {
-  const key = extractKeyFromS3Url(file.filepath);
-  const params = { Bucket: bucketName, Key: key };
-  if (!key.includes(req.user.id)) {
-    const message = `[deleteFileFromS3] User ID mismatch: ${req.user.id} vs ${key}`;
-    logger.error(message);
-    throw new Error(message);
-  }
+async function deleteFileFromS3({ tenantId, userId, basePath, fileName }) {
+  requireTenantId(tenantId, 'deleteFileFromS3');
+  
+  // Get tenant-routed bucket and key (always uses tenant prefix)
+  const { bucket, key } = await getTenantS3BucketAndKey({
+    tenantId,
+    basePath,
+    userId,
+    fileName,
+  });
+  
+  const params = { Bucket: bucket, Key: key };
 
   try {
     const s3 = initializeS3();
@@ -194,18 +227,27 @@ async function deleteFileFromS3(req, file) {
  * Uploads a local file to S3 by streaming it directly without loading into memory.
  *
  * @param {Object} params
- * @param {import('express').Request} params.req - The Express request (must include user).
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
  * @param {Express.Multer.File} params.file - The file object from Multer.
  * @param {string} params.file_id - Unique file identifier.
  * @param {string} [params.basePath='images'] - The base path in the bucket.
  * @returns {Promise<{ filepath: string, bytes: number }>}
  */
-async function uploadFileToS3({ req, file, file_id, basePath = defaultBasePath }) {
+async function uploadFileToS3({ tenantId, userId, file, file_id, basePath = defaultBasePath }) {
   try {
+    requireTenantId(tenantId, 'uploadFileToS3');
+    
     const inputFilePath = file.path;
-    const userId = req.user.id;
     const fileName = `${file_id}__${file.originalname}`;
-    const key = getS3Key(basePath, userId, fileName);
+    
+    // Get tenant-routed bucket and key
+    const { bucket, key } = await getTenantS3BucketAndKey({
+      tenantId,
+      basePath,
+      userId,
+      fileName,
+    });
 
     const stats = await fs.promises.stat(inputFilePath);
     const bytes = stats.size;
@@ -213,13 +255,13 @@ async function uploadFileToS3({ req, file, file_id, basePath = defaultBasePath }
 
     const s3 = initializeS3();
     const uploadParams = {
-      Bucket: bucketName,
+      Bucket: bucket,
       Key: key,
       Body: fileStream,
     };
 
     await s3.send(new PutObjectCommand(uploadParams));
-    const fileURL = await getS3URL({ userId, fileName, basePath });
+    const fileURL = await getS3URL({ userId, fileName, basePath, tenantId });
     return { filepath: fileURL, bytes };
   } catch (error) {
     logger.error('[uploadFileToS3] Error streaming file to S3:', error);
@@ -264,15 +306,29 @@ function extractKeyFromS3Url(fileUrlOrKey) {
 
 /**
  * Retrieves a readable stream for a file stored in S3.
+ * 
+ * CLEAN-SLATE: No legacy key format support. File must be stored with tenant prefix.
  *
- * @param {ServerRequest} req - Server request object.
- * @param {string} filePath - The S3 key of the file.
+ * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {string} params.basePath - Base path (e.g., 'images', 'documents')
+ * @param {string} params.fileName - File name
  * @returns {Promise<NodeJS.ReadableStream>}
  */
-async function getS3FileStream(_req, filePath) {
+async function getS3FileStream({ tenantId, userId, basePath, fileName }) {
   try {
-    const Key = extractKeyFromS3Url(filePath);
-    const params = { Bucket: bucketName, Key };
+    requireTenantId(tenantId, 'getS3FileStream');
+    
+    // Get tenant-routed bucket and key (always uses tenant prefix)
+    const { bucket, key } = await getTenantS3BucketAndKey({
+      tenantId,
+      basePath,
+      userId,
+      fileName,
+    });
+    
+    const params = { Bucket: bucket, Key: key };
     const s3 = initializeS3();
     const data = await s3.send(new GetObjectCommand(params));
     return data.Body; // Returns a Node.js ReadableStream.
@@ -343,46 +399,50 @@ function needsRefresh(signedUrl, bufferSeconds) {
 
 /**
  * Generates a new URL for an expired S3 URL
- * @param {string} currentURL - The current file URL
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId, basePath, fileName.
+ * No URL parsing or legacy format support.
+ * 
+ * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {string} params.basePath - Base path (e.g., 'images', 'documents')
+ * @param {string} params.fileName - File name
  * @returns {Promise<string | undefined>}
  */
-async function getNewS3URL(currentURL) {
+async function getNewS3URL({ tenantId, userId, basePath, fileName }) {
   try {
-    const s3Key = extractKeyFromS3Url(currentURL);
-    if (!s3Key) {
-      return;
-    }
-    const keyParts = s3Key.split('/');
-    if (keyParts.length < 3) {
-      return;
-    }
-
-    const basePath = keyParts[0];
-    const userId = keyParts[1];
-    const fileName = keyParts.slice(2).join('/');
+    requireTenantId(tenantId, 'getNewS3URL');
 
     return await getS3URL({
       userId,
       fileName,
       basePath,
+      tenantId,
     });
   } catch (error) {
-    logger.error('Error getting new S3 URL:', error);
+    logger.error('[getNewS3URL] Error getting new S3 URL:', error);
+    return undefined;
   }
 }
 
 /**
  * Refreshes S3 URLs for an array of files if they're expired or close to expiring
+ * 
+ * CLEAN-SLATE: Files must have tenant-prefixed keys. Requires explicit file metadata.
  *
- * @param {MongoFile[]} files - Array of file documents
+ * @param {MongoFile[]} files - Array of file documents (must include userId, basePath, fileName metadata)
  * @param {(files: MongoFile[]) => Promise<void>} batchUpdateFiles - Function to update files in the database
+ * @param {string} tenantId - Tenant ID (required for tenant-scoped operations)
  * @param {number} [bufferSeconds=3600] - Buffer time in seconds to check for expiration
  * @returns {Promise<MongoFile[]>} The files with refreshed URLs if needed
  */
-async function refreshS3FileUrls(files, batchUpdateFiles, bufferSeconds = 3600) {
+async function refreshS3FileUrls(files, batchUpdateFiles, tenantId, bufferSeconds = 3600) {
   if (!files || !Array.isArray(files) || files.length === 0) {
     return files;
   }
+  
+  requireTenantId(tenantId, 'refreshS3FileUrls');
 
   const filesToUpdate = [];
 
@@ -400,8 +460,23 @@ async function refreshS3FileUrls(files, batchUpdateFiles, bufferSeconds = 3600) 
     if (!needsRefresh(file.filepath, bufferSeconds)) {
       continue;
     }
+    
+    // CLEAN-SLATE: Require explicit file metadata (no URL parsing)
+    if (!file.user || !file.filename) {
+      logger.warn(`[refreshS3FileUrls] File ${file.file_id} missing required metadata (user, filename). Skipping refresh.`);
+      continue;
+    }
+    
+    // Extract basePath from file context or default to 'images'
+    const basePath = file.context === 'documents' ? 'documents' : 'images';
+    
     try {
-      const newURL = await getNewS3URL(file.filepath);
+      const newURL = await getNewS3URL({
+        tenantId,
+        userId: file.user,
+        basePath,
+        fileName: file.filename,
+      });
       if (!newURL) {
         continue;
       }
@@ -411,7 +486,7 @@ async function refreshS3FileUrls(files, batchUpdateFiles, bufferSeconds = 3600) 
       });
       files[i].filepath = newURL;
     } catch (error) {
-      logger.error(`Error refreshing S3 URL for file ${file.file_id}:`, error);
+      logger.error(`[refreshS3FileUrls] Error refreshing S3 URL for file ${file.file_id}:`, error);
     }
   }
 
@@ -424,48 +499,42 @@ async function refreshS3FileUrls(files, batchUpdateFiles, bufferSeconds = 3600) 
 
 /**
  * Refreshes a single S3 URL if it's expired or close to expiring
+ * 
+ * CLEAN-SLATE: Requires explicit file metadata. No URL parsing or legacy format support.
  *
- * @param {{ filepath: string, source: string }} fileObj - Simple file object containing filepath and source
+ * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {string} params.basePath - Base path (e.g., 'images', 'documents')
+ * @param {string} params.fileName - File name
+ * @param {string} params.currentUrl - Current S3 URL (for expiration check only)
  * @param {number} [bufferSeconds=3600] - Buffer time in seconds to check for expiration
  * @returns {Promise<string>} The refreshed URL or the original URL if no refresh needed
  */
-async function refreshS3Url(fileObj, bufferSeconds = 3600) {
-  if (!fileObj || fileObj.source !== FileSources.s3 || !fileObj.filepath) {
-    return fileObj?.filepath || '';
+async function refreshS3Url({ tenantId, userId, basePath, fileName, currentUrl, bufferSeconds = 3600 }) {
+  if (!currentUrl) {
+    return '';
   }
+  
+  requireTenantId(tenantId, 'refreshS3Url');
 
-  if (!needsRefresh(fileObj.filepath, bufferSeconds)) {
-    return fileObj.filepath;
+  if (!needsRefresh(currentUrl, bufferSeconds)) {
+    return currentUrl;
   }
 
   try {
-    const s3Key = extractKeyFromS3Url(fileObj.filepath);
-    if (!s3Key) {
-      logger.warn(`Unable to extract S3 key from URL: ${fileObj.filepath}`);
-      return fileObj.filepath;
-    }
-
-    const keyParts = s3Key.split('/');
-    if (keyParts.length < 3) {
-      logger.warn(`Invalid S3 key format: ${s3Key}`);
-      return fileObj.filepath;
-    }
-
-    const basePath = keyParts[0];
-    const userId = keyParts[1];
-    const fileName = keyParts.slice(2).join('/');
-
     const newUrl = await getS3URL({
       userId,
       fileName,
       basePath,
+      tenantId,
     });
 
-    logger.debug(`Refreshed S3 URL for key: ${s3Key}`);
+    logger.debug(`[refreshS3Url] Refreshed S3 URL for tenant=${tenantId}, userId=${userId}, fileName=${fileName}`);
     return newUrl;
   } catch (error) {
-    logger.error(`Error refreshing S3 URL: ${error.message}`);
-    return fileObj.filepath;
+    logger.error(`[refreshS3Url] Error refreshing S3 URL: ${error.message}`);
+    return currentUrl;
   }
 }
 

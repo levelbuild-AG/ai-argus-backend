@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { logger } = require('@librechat/data-schemas');
 const { isEnabled, generateShortLivedToken } = require('@librechat/api');
+const { getRagApiHeaders } = require('~/server/utils/ragApiClient');
 
 const footer = `Use the context as your learned knowledge to better answer the user.
 
@@ -22,11 +23,13 @@ function createContextHandlers(req, userMessageContent) {
   const useFullContext = isEnabled(process.env.RAG_USE_FULL_CONTEXT);
 
   const query = async (file) => {
+    const baseHeaders = {
+      Authorization: `Bearer ${jwtToken}`,
+    };
+    
     if (useFullContext) {
       return axios.get(`${process.env.RAG_API_URL}/documents/${file.file_id}/context`, {
-        headers: {
-          Authorization: `Bearer ${jwtToken}`,
-        },
+        headers: getRagApiHeaders(req, baseHeaders, 'createContextHandlers.get'),
       });
     }
 
@@ -38,10 +41,10 @@ function createContextHandlers(req, userMessageContent) {
         k: 4,
       },
       {
-        headers: {
-          Authorization: `Bearer ${jwtToken}`,
+        headers: getRagApiHeaders(req, {
+          ...baseHeaders,
           'Content-Type': 'application/json',
-        },
+        }, 'createContextHandlers.post'),
       },
     );
   };

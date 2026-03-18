@@ -7,6 +7,28 @@ import type { ServerRequest } from '~/types';
 import { logAxiosError, readFileAsString } from '~/utils';
 import { generateShortLivedToken } from '~/crypto/jwt';
 
+// Helper to get headers with tenant ID (required in multi-tenant mode)
+function getRagApiHeaders(
+  req: ServerRequest,
+  additionalHeaders: Record<string, string> = {},
+  callsite: string = 'unknown'
+): Record<string, string> {
+  const headers = { ...additionalHeaders };
+  const tenantId = req?.tenantContext?.tenantId;
+  
+  if (!tenantId) {
+    const error = new Error(
+      `X-Tenant-ID header required for rag_api request (callsite: ${callsite}). ` +
+      `Multi-tenancy is always-on; ensure requireTenantContext middleware runs before this call.`
+    );
+    logger.error(`[ragApiClient] ${error.message}`);
+    throw error;
+  }
+  
+  headers['X-Tenant-ID'] = tenantId;
+  return headers;
+}
+
 /**
  * Attempts to parse text using RAG API, falls back to native text parsing
  * @param params - The parameters object
@@ -60,11 +82,11 @@ export async function parseText({
     const formHeaders = formData.getHeaders();
 
     const response = await axios.post(`${process.env.RAG_API_URL}/text`, formData, {
-      headers: {
+      headers: getRagApiHeaders(req, {
         Authorization: `Bearer ${jwtToken}`,
         accept: 'application/json',
         ...formHeaders,
-      },
+      }, 'parseText'),
       timeout: 300000,
     });
 

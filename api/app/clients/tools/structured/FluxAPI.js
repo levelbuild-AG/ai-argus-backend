@@ -4,6 +4,7 @@ const fetch = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
 const { Tool } = require('@langchain/core/tools');
 const { logger } = require('@librechat/data-schemas');
+const { isMultiTenancyEnabled } = require('@librechat/api');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { FileContext, ContentTypes } = require('librechat-data-provider');
 
@@ -33,6 +34,8 @@ class FluxAPI extends Tool {
 
     this.userId = fields.userId;
     this.fileStrategy = fields.fileStrategy;
+    /** @type {string | undefined} Required in multi-tenant mode; credentials from tenant config only. */
+    this.tenantId = fields.tenantId;
 
     /** @type {boolean} **/
     this.isAgent = fields.isAgent;
@@ -43,7 +46,18 @@ class FluxAPI extends Tool {
       this.processFileURL = fields.processFileURL.bind(this);
     }
 
-    this.apiKey = fields.FLUX_API_KEY || this.getApiKey();
+    if (fields.tenantId) {
+      this.apiKey = fields.FLUX_API_KEY ?? '';
+      if (!this.apiKey && !this.override) {
+        throw new Error(
+          `Tenant '${fields.tenantId}' has Flux enabled but no fluxApiKey configured.`,
+        );
+      }
+      this.baseUrl = fields.FLUX_API_BASE_URL || 'https://api.us1.bfl.ai';
+    } else {
+      this.apiKey = fields.FLUX_API_KEY || this.getApiKey();
+      this.baseUrl = process.env.FLUX_API_BASE_URL || 'https://api.us1.bfl.ai';
+    }
 
     this.name = 'flux';
     this.description =
@@ -53,9 +67,6 @@ class FluxAPI extends Tool {
     // 1. ALWAYS enhance basic prompts into 5-10 detailed sentences (e.g., "a cat" becomes: "A close-up photo of a sleek Siamese cat with piercing blue eyes. The cat sits elegantly on a vintage leather armchair, its tail curled gracefully around its paws. Warm afternoon sunlight streams through a nearby window, casting gentle shadows across its face and highlighting the subtle variations in its cream and chocolate-point fur. The background is softly blurred, creating a shallow depth of field that draws attention to the cat's expressive features. The overall composition has a peaceful, contemplative mood with a professional photography style.")
     // 2. Each prompt MUST be 3-6 descriptive sentences minimum, focusing on visual elements: lighting, composition, mood, and style
     // Use action: 'list_finetunes' to see available custom models. When using finetunes, use endpoint: '/v1/flux-pro-finetuned' (default) or '/v1/flux-pro-1.1-ultra-finetuned' for higher quality and aspect ratio.`;
-
-    // Add base URL from environment variable with fallback
-    this.baseUrl = process.env.FLUX_API_BASE_URL || 'https://api.us1.bfl.ai';
 
     // Define the schema for structured input
     this.schema = z.object({
@@ -152,6 +163,11 @@ class FluxAPI extends Tool {
   }
 
   getApiKey() {
+    if (isMultiTenancyEnabled() && this.tenantId) {
+      throw new Error(
+        'In multi-tenant mode Flux API key must be passed via constructor (fluxApiKey from tenant config).',
+      );
+    }
     const apiKey = process.env.FLUX_API_KEY || '';
     if (!apiKey && !this.override) {
       throw new Error('Missing FLUX_API_KEY environment variable.');

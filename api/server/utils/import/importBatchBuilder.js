@@ -8,10 +8,11 @@ const { bulkSaveMessages } = require('~/models/Message');
 /**
  * Factory function for creating an instance of ImportBatchBuilder.
  * @param {string} requestUserId - The ID of the user making the request.
+ * @param {Object} [models] - Optional tenant-scoped models (Conversation, Message)
  * @returns {ImportBatchBuilder} - The newly created ImportBatchBuilder instance.
  */
-function createImportBatchBuilder(requestUserId) {
-  return new ImportBatchBuilder(requestUserId);
+function createImportBatchBuilder(requestUserId, models) {
+  return new ImportBatchBuilder(requestUserId, models);
 }
 
 /**
@@ -21,9 +22,11 @@ class ImportBatchBuilder {
   /**
    * Creates an instance of ImportBatchBuilder.
    * @param {string} requestUserId - The ID of the user making the import request.
+   * @param {Object} [models] - Optional tenant-scoped models (Conversation, Message)
    */
-  constructor(requestUserId) {
+  constructor(requestUserId, models) {
     this.requestUserId = requestUserId;
+    this.models = models;
     this.conversations = [];
     this.messages = [];
   }
@@ -101,8 +104,8 @@ class ImportBatchBuilder {
   async saveBatch() {
     try {
       const promises = [];
-      promises.push(bulkSaveConvos(this.conversations));
-      promises.push(bulkSaveMessages(this.messages, true));
+      promises.push(bulkSaveConvos(this.conversations, this.models));
+      promises.push(bulkSaveMessages(this.messages, true, this.models));
       promises.push(
         bulkIncrementTagCounts(
           this.requestUserId,

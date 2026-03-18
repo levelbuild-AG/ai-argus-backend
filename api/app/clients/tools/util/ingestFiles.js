@@ -4,6 +4,7 @@ const { tool } = require('@langchain/core/tools');
 const { logger } = require('@librechat/data-schemas');
 const { generateShortLivedToken } = require('@librechat/api');
 const { Tools } = require('librechat-data-provider');
+const { getRagApiHeaders } = require('~/server/utils/ragApiClient');
 
 const MAX_INGEST_CHARS = 20000;
 const ERROR_DETAIL_LIMIT = 200;
@@ -275,7 +276,7 @@ const resolveRequestedIds = ({ file_ids, select, indices, filenames, files }) =>
   return [];
 };
 
-const createIngestFilesTool = async ({ userId, files }) => {
+const createIngestFilesTool = async ({ userId, files, tenantId }) => {
   return tool(
     async ({ file_ids, max_chars, scope, select, indices, filenames, filename }) => {
       if (!files || files.length === 0) {
@@ -285,6 +286,14 @@ const createIngestFilesTool = async ({ userId, files }) => {
       const jwtToken = generateShortLivedToken(userId);
       if (!jwtToken) {
         return ['There was an error authenticating the file ingestion request.', undefined];
+      }
+
+      // Build headers with tenant ID if available
+      const headers = {
+        Authorization: `Bearer ${jwtToken}`,
+      };
+      if (tenantId) {
+        headers['X-Tenant-ID'] = tenantId;
       }
 
       const maxChars = normalizeMaxChars(max_chars);
@@ -373,9 +382,7 @@ const createIngestFilesTool = async ({ userId, files }) => {
             const response = await axios.get(
               buildRagUrl(resolvedId),
               {
-                headers: {
-                  Authorization: `Bearer ${jwtToken}`,
-                },
+                headers,
                 params: maxChars ? { max_chars: maxChars } : undefined,
               },
             );

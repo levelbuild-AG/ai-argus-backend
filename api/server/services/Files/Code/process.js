@@ -230,7 +230,8 @@ const primeFiles = async (options, apiKey) => {
           const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(
             FileSources.execute_code,
           );
-          const stream = await getDownloadStream(options.req, file.filepath);
+          // For S3, pass file object (not just filepath) to extract metadata
+          const stream = await getDownloadStream(options.req, file);
           const fileIdentifier = await uploadCodeEnvFile({
             req: options.req,
             stream,

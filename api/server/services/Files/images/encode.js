@@ -131,7 +131,8 @@ async function encodeAndFormat(req, files, params, mode) {
     if (blobStorageSources.has(source)) {
       try {
         const downloadStream = encodingMethods[source].getDownloadStream;
-        let stream = await downloadStream(req, file.filepath);
+        // For S3, pass file object (not just filepath) to extract metadata
+        let stream = await downloadStream(req, file);
         let base64Data = await streamToBase64(stream);
         stream = null;
         promises.push([file, base64Data]);

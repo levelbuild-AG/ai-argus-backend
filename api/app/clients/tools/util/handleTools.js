@@ -44,6 +44,7 @@ const { getUserPluginAuthValue } = require('~/server/services/PluginService');
 const { createMCPTool, createMCPTools } = require('~/server/services/MCP');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { getMCPServerTools } = require('~/server/services/Config');
+const { getTenantConfigService } = require('~/server/services/Config/TenantConfigService');
 const { getRoleByName } = require('~/models/Role');
 
 /**
@@ -182,7 +183,6 @@ const loadTools = async ({
   imageOutputType,
 }) => {
   const toolConstructors = {
-    flux: FluxAPI,
     calculator: Calculator,
     google: GoogleSearchAPI,
     open_weather: OpenWeather,
@@ -201,8 +201,20 @@ const loadTools = async ({
       return createYouTubeTools(authValues);
     },
     image_gen_oai: async (toolContextMap) => {
-      const authFields = getAuthFields('image_gen_oai');
-      const authValues = await loadAuthValues({ userId: user, authFields });
+      let authValues = {};
+      if (tenantId) {
+        const config = await getTenantConfigService().getTenantConfig(tenantId);
+        const apiKey = config.secrets?.openAiApiKey;
+        if (!apiKey) {
+          throw new Error(
+            `Tenant '${tenantId}' has image_gen_oai enabled but no openAiApiKey configured.`,
+          );
+        }
+        authValues = { IMAGE_GEN_OAI_API_KEY: apiKey };
+      } else {
+        const authFields = getAuthFields('image_gen_oai');
+        authValues = await loadAuthValues({ userId: user, authFields });
+      }
       const imageFiles = options.tool_resources?.[EToolResources.image_edit]?.files ?? [];
       let toolContext = '';
       for (let i = 0; i < imageFiles.length; i++) {
@@ -224,6 +236,7 @@ const loadTools = async ({
       }
       return createOpenAIImageTools({
         ...authValues,
+        tenantId,
         isAgent: !!agent,
         req: options.req,
         imageOutputType,
@@ -231,13 +244,57 @@ const loadTools = async ({
         imageFiles,
       });
     },
+    dalle: async () => {
+      let authValues = {};
+      if (tenantId) {
+        const config = await getTenantConfigService().getTenantConfig(tenantId);
+        const apiKey = config.secrets?.openAiApiKey;
+        if (!apiKey) {
+          throw new Error(
+            `Tenant '${tenantId}' has DALL-E enabled but no openAiApiKey configured.`,
+          );
+        }
+        authValues = { DALLE3_API_KEY: apiKey };
+      } else {
+        authValues = await loadAuthValues({
+          userId: user,
+          authFields: getAuthFields('dalle'),
+        });
+      }
+      return new DALLE3({
+        ...imageGenOptions,
+        ...authValues,
+        tenantId,
+        userId: user,
+      });
+    },
+    flux: async () => {
+      let authValues = {};
+      if (tenantId) {
+        const config = await getTenantConfigService().getTenantConfig(tenantId);
+        const apiKey = config.secrets?.fluxApiKey;
+        if (!apiKey) {
+          throw new Error(
+            `Tenant '${tenantId}' has Flux enabled but no fluxApiKey configured.`,
+          );
+        }
+        authValues = { FLUX_API_KEY: apiKey };
+      } else {
+        authValues = await loadAuthValues({
+          userId: user,
+          authFields: getAuthFields('flux'),
+        });
+      }
+      return new FluxAPI({
+        ...imageGenOptions,
+        ...authValues,
+        tenantId,
+        userId: user,
+      });
+    },
   };
 
   const requestedTools = {};
-
-  if (functions === true) {
-    toolConstructors.dalle = DALLE3;
-  }
 
   /** @type {ImageGenOptions} */
   const imageGenOptions = {
@@ -249,11 +306,17 @@ const loadTools = async ({
     uploadImageBuffer: options.uploadImageBuffer,
   };
 
+  // Extract tenantId from req.tenantContext (set by tenantContext middleware)
+  // CRITICAL: Pass tenantId explicitly to tools - do not rely on req.user.tenantId
+  // This ensures tools work in background jobs, SSE, and other non-request contexts
+  const tenantId = options.req?.tenantContext?.tenantId;
+
   const toolOptions = {
-    flux: imageGenOptions,
-    dalle: imageGenOptions,
     'stable-diffusion': imageGenOptions,
-    'google-imagen': imageGenOptions,
+    'google-imagen': {
+      ...imageGenOptions,
+      tenantId, // Explicit tenantId for GoogleImagen (required in multi-tenant mode)
+    },
   };
 
   /** @type {Record<string, string>} */
@@ -318,6 +381,7 @@ const loadTools = async ({
           files,
           entity_id: agent?.id,
           fileCitations,
+          tenantId, // Pass tenantId for rag_api routing
         });
       };
       continue;
@@ -333,6 +397,7 @@ const loadTools = async ({
         return createIngestFilesTool({
           userId: user,
           files,
+          tenantId, // Pass tenantId for rag_api routing
         });
       };
       continue;

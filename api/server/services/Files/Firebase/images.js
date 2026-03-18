@@ -5,27 +5,32 @@ const { logger } = require('@librechat/data-schemas');
 const { resizeImageBuffer } = require('../images/resize');
 const { updateUser, updateFile } = require('~/models');
 const { saveBufferToFirebase } = require('./crud');
+const { requireTenantId } = require('./tenantRouting');
 
 /**
  * Converts an image file to the target format. The function first resizes the image based on the specified
  * resolution.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId. No legacy path support.
  *
  * @param {Object} params - The params object.
- * @param {ServerRequest} params.req - The request object from Express. It should have a `user` property with an `id` representing the user
- * @param {Express.Multer.File} params.file - The file object, which is part of the request. The file object should
- *                                     have a `path` property that points to the location of the uploaded file.
- * @param {EModelEndpoint} params.endpoint - The params object.
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {Express.Multer.File} params.file - The file object.
+ * @param {string} params.file_id - The file ID.
+ * @param {EModelEndpoint} params.endpoint - The endpoint.
  * @param {string} [params.resolution='high'] - Optional. The desired resolution for the image resizing. Default is 'high'.
- *
+ * @param {Object} params.appConfig - App config (for system defaults)
  * @returns {Promise<{ filepath: string, bytes: number, width: number, height: number}>}
  *          A promise that resolves to an object containing:
- *            - filepath: The path where the converted image is saved.
+ *            - filepath: The download URL where the converted image is saved (with tenant prefix).
  *            - bytes: The size of the converted image in bytes.
  *            - width: The width of the converted image.
  *            - height: The height of the converted image.
  */
-async function uploadImageToFirebase({ req, file, file_id, endpoint, resolution = 'high' }) {
-  const appConfig = req.config;
+async function uploadImageToFirebase({ tenantId, userId, file, file_id, endpoint, resolution = 'high', appConfig }) {
+  requireTenantId(tenantId, 'uploadImageToFirebase');
+  
   const inputFilePath = file.path;
   const inputBuffer = await fs.promises.readFile(inputFilePath);
   const {
@@ -34,11 +39,12 @@ async function uploadImageToFirebase({ req, file, file_id, endpoint, resolution 
     height,
   } = await resizeImageBuffer(inputBuffer, resolution, endpoint);
   const extension = path.extname(inputFilePath);
-  const userId = req.user.id;
 
-  let webPBuffer;
+  const basePath = 'images';
   let fileName = `${file_id}__${path.basename(inputFilePath)}`;
   const targetExtension = `.${appConfig.imageOutputType}`;
+  
+  let webPBuffer;
   if (extension.toLowerCase() === targetExtension) {
     webPBuffer = resizedBuffer;
   } else {
@@ -51,7 +57,7 @@ async function uploadImageToFirebase({ req, file, file_id, endpoint, resolution 
     }
   }
 
-  const downloadURL = await saveBufferToFirebase({ userId, buffer: webPBuffer, fileName });
+  const downloadURL = await saveBufferToFirebase({ tenantId, userId, buffer: webPBuffer, fileName, basePath });
 
   await fs.promises.unlink(inputFilePath);
 
@@ -76,17 +82,21 @@ async function prepareImageURL(req, file) {
 
 /**
  * Uploads a user's avatar to Firebase Storage and returns the URL.
- * If the 'manual' flag is set to 'true', it also updates the user's avatar URL in the database.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId. No legacy path support.
  *
  * @param {object} params - The parameters object.
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
  * @param {Buffer} params.buffer - The Buffer containing the avatar image.
  * @param {string} params.userId - The user ID.
  * @param {string} params.manual - A string flag indicating whether the update is manual ('true' or 'false').
  * @param {string} [params.agentId] - Optional agent ID if this is an agent avatar.
- * @returns {Promise<string>} - A promise that resolves with the URL of the uploaded avatar.
- * @throws {Error} - Throws an error if Firebase is not initialized or if there is an error in uploading.
+ * @returns {Promise<string>} - A promise that resolves with the URL of the uploaded avatar (with tenant prefix).
+ * @throws {Error} - Throws an error if tenantId is missing or if there is an error in uploading.
  */
-async function processFirebaseAvatar({ buffer, userId, manual, agentId }) {
+async function processFirebaseAvatar({ tenantId, buffer, userId, manual, agentId }) {
+  requireTenantId(tenantId, 'processFirebaseAvatar');
+  
   try {
     const metadata = await sharp(buffer).metadata();
     const extension = metadata.format === 'gif' ? 'gif' : 'png';
@@ -97,10 +107,14 @@ async function processFirebaseAvatar({ buffer, userId, manual, agentId }) {
       ? `agent-${agentId}-avatar-${timestamp}.${extension}`
       : `avatar-${timestamp}.${extension}`;
 
+    const basePath = 'images';
+
     const downloadURL = await saveBufferToFirebase({
+      tenantId,
       userId,
       buffer,
       fileName,
+      basePath,
     });
 
     const isManual = manual === 'true';

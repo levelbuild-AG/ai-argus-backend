@@ -64,11 +64,18 @@ function createOpenAIImageTools(fields = {}) {
   if (!override && !fields.isAgent) {
     throw new Error('This tool is only available for agents.');
   }
-  const { req } = fields;
+  const { req, tenantId } = fields;
   const imageOutputType = fields.imageOutputType || EImageOutputType.PNG;
   const appFileStrategy = fields.fileStrategy;
 
+  const tenantMode = !!tenantId;
+
   const getApiKey = () => {
+    if (tenantMode) {
+      throw new Error(
+        'In multi-tenant mode image_gen_oai API key must be passed via constructor (openAiApiKey from tenant config).',
+      );
+    }
     const apiKey = process.env.IMAGE_GEN_OAI_API_KEY ?? '';
     if (!apiKey && !override) {
       throw new Error('Missing IMAGE_GEN_OAI_API_KEY environment variable.');
@@ -76,29 +83,45 @@ function createOpenAIImageTools(fields = {}) {
     return apiKey;
   };
 
-  let apiKey = fields.IMAGE_GEN_OAI_API_KEY ?? getApiKey();
-  const closureConfig = { apiKey };
-
+  let apiKey;
   let baseURL = 'https://api.openai.com/v1/';
-  if (!override && process.env.IMAGE_GEN_OAI_BASEURL) {
-    baseURL = extractBaseURL(process.env.IMAGE_GEN_OAI_BASEURL);
-    closureConfig.baseURL = baseURL;
-  }
+  /** @type {{ apiKey: string; baseURL?: string; defaultQuery?: object; defaultHeaders?: object; useAzure?: boolean }} */
+  const closureConfig = { apiKey: '' };
 
-  // Note: Azure may not yet support the latest image generation models
-  if (
-    !override &&
-    process.env.IMAGE_GEN_OAI_AZURE_API_VERSION &&
-    process.env.IMAGE_GEN_OAI_BASEURL
-  ) {
-    baseURL = process.env.IMAGE_GEN_OAI_BASEURL;
+  if (tenantMode) {
+    apiKey = fields.IMAGE_GEN_OAI_API_KEY ?? '';
+    if (!apiKey && !override) {
+      throw new Error(
+        `Tenant '${tenantId}' has image_gen_oai enabled but no openAiApiKey configured.`,
+      );
+    }
+    closureConfig.apiKey = apiKey;
     closureConfig.baseURL = baseURL;
-    closureConfig.defaultQuery = { 'api-version': process.env.IMAGE_GEN_OAI_AZURE_API_VERSION };
-    closureConfig.defaultHeaders = {
-      'api-key': process.env.IMAGE_GEN_OAI_API_KEY,
-      'Content-Type': 'application/json',
-    };
-    closureConfig.apiKey = process.env.IMAGE_GEN_OAI_API_KEY;
+    closureConfig.useAzure = false;
+  } else {
+    apiKey = fields.IMAGE_GEN_OAI_API_KEY ?? getApiKey();
+    closureConfig.apiKey = apiKey;
+    if (!override && process.env.IMAGE_GEN_OAI_BASEURL) {
+      baseURL = extractBaseURL(process.env.IMAGE_GEN_OAI_BASEURL);
+      closureConfig.baseURL = baseURL;
+    }
+    const hasAzure =
+      !override &&
+      process.env.IMAGE_GEN_OAI_AZURE_API_VERSION &&
+      process.env.IMAGE_GEN_OAI_BASEURL;
+    if (hasAzure) {
+      baseURL = process.env.IMAGE_GEN_OAI_BASEURL;
+      closureConfig.baseURL = baseURL;
+      closureConfig.defaultQuery = { 'api-version': process.env.IMAGE_GEN_OAI_AZURE_API_VERSION };
+      closureConfig.defaultHeaders = {
+        'api-key': process.env.IMAGE_GEN_OAI_API_KEY,
+        'Content-Type': 'application/json',
+      };
+      closureConfig.apiKey = process.env.IMAGE_GEN_OAI_API_KEY;
+      closureConfig.useAzure = true;
+    } else {
+      closureConfig.useAzure = false;
+    }
   }
 
   const imageFiles = fields.imageFiles ?? [];
@@ -322,7 +345,7 @@ Error Message: ${error.message}`);
         ...formData.getHeaders(),
       };
 
-      if (process.env.IMAGE_GEN_OAI_AZURE_API_VERSION && process.env.IMAGE_GEN_OAI_BASEURL) {
+      if (closureConfig.useAzure) {
         headers['api-key'] = apiKey;
       } else {
         headers['Authorization'] = `Bearer ${apiKey}`;
@@ -352,9 +375,9 @@ Error Message: ${error.message}`);
           axiosConfig.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
         }
 
-        if (process.env.IMAGE_GEN_OAI_AZURE_API_VERSION && process.env.IMAGE_GEN_OAI_BASEURL) {
+        if (closureConfig.useAzure && closureConfig.defaultQuery) {
           axiosConfig.params = {
-            'api-version': process.env.IMAGE_GEN_OAI_AZURE_API_VERSION,
+            ...closureConfig.defaultQuery,
             ...axiosConfig.params,
           };
         }

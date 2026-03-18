@@ -5,37 +5,51 @@ const axios = require('axios');
 const fetch = require('node-fetch');
 const { logger } = require('@librechat/data-schemas');
 const { getAzureContainerClient } = require('@librechat/api');
+const {
+  getTenantAzureContainerAndBlobName,
+  requireTenantId,
+} = require('./tenantRouting');
 
 const defaultBasePath = 'images';
 const { AZURE_STORAGE_PUBLIC_ACCESS = 'true', AZURE_CONTAINER_NAME = 'files' } = process.env;
 
 /**
  * Uploads a buffer to Azure Blob Storage.
- *
- * Files will be stored at the path: {basePath}/{userId}/{fileName} within the container.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId. Uses tenant-routed container and blob name.
  *
  * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
  * @param {string} params.userId - The user's id.
  * @param {Buffer} params.buffer - The buffer to upload.
  * @param {string} params.fileName - The name of the file.
  * @param {string} [params.basePath='images'] - The base folder within the container.
- * @param {string} [params.containerName] - The Azure Blob container name.
- * @returns {Promise<string>} The URL of the uploaded blob.
+ * @returns {Promise<string>} The URL of the uploaded blob (with tenant prefix).
  */
 async function saveBufferToAzure({
+  tenantId,
   userId,
   buffer,
   fileName,
   basePath = defaultBasePath,
-  containerName,
 }) {
+  requireTenantId(tenantId, 'saveBufferToAzure');
+  
   try {
-    const containerClient = await getAzureContainerClient(containerName);
+    // Get tenant-routed container and blob name (always uses tenant prefix)
+    const { container, blobName } = await getTenantAzureContainerAndBlobName({
+      tenantId,
+      basePath,
+      userId,
+      fileName,
+    });
+    
+    const containerClient = await getAzureContainerClient(container);
     const access = AZURE_STORAGE_PUBLIC_ACCESS?.toLowerCase() === 'true' ? 'blob' : undefined;
     // Create the container if it doesn't exist. This is done per operation.
     await containerClient.createIfNotExists({ access });
-    const blobPath = `${basePath}/${userId}/${fileName}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+    
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.uploadData(buffer);
     return blockBlobClient.url;
   } catch (error) {
@@ -46,26 +60,30 @@ async function saveBufferToAzure({
 
 /**
  * Saves a file from a URL to Azure Blob Storage.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId. Uses tenant-routed container and blob name.
  *
  * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
  * @param {string} params.userId - The user's id.
  * @param {string} params.URL - The URL of the file.
  * @param {string} params.fileName - The name of the file.
  * @param {string} [params.basePath='images'] - The base folder within the container.
- * @param {string} [params.containerName] - The Azure Blob container name.
- * @returns {Promise<string>} The URL of the uploaded blob.
+ * @returns {Promise<string>} The URL of the uploaded blob (with tenant prefix).
  */
 async function saveURLToAzure({
+  tenantId,
   userId,
   URL,
   fileName,
   basePath = defaultBasePath,
-  containerName,
 }) {
+  requireTenantId(tenantId, 'saveURLToAzure');
+  
   try {
     const response = await fetch(URL);
     const buffer = await response.buffer();
-    return await saveBufferToAzure({ userId, buffer, fileName, basePath, containerName });
+    return await saveBufferToAzure({ tenantId, userId, buffer, fileName, basePath });
   } catch (error) {
     logger.error('[saveURLToAzure] Error uploading file from URL:', error);
     throw error;
@@ -74,19 +92,30 @@ async function saveURLToAzure({
 
 /**
  * Retrieves a blob URL from Azure Blob Storage.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId. Uses tenant-routed container and blob name.
  *
  * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
  * @param {string} params.fileName - The file name.
  * @param {string} [params.basePath='images'] - The base folder used during upload.
- * @param {string} [params.userId] - If files are stored in a user-specific directory.
- * @param {string} [params.containerName] - The Azure Blob container name.
- * @returns {Promise<string>} The blob's URL.
+ * @returns {Promise<string>} The blob's URL (with tenant prefix).
  */
-async function getAzureURL({ fileName, basePath = defaultBasePath, userId, containerName }) {
+async function getAzureURL({ tenantId, userId, fileName, basePath = defaultBasePath }) {
+  requireTenantId(tenantId, 'getAzureURL');
+  
   try {
-    const containerClient = await getAzureContainerClient(containerName);
-    const blobPath = userId ? `${basePath}/${userId}/${fileName}` : `${basePath}/${fileName}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+    // Get tenant-routed container and blob name (always uses tenant prefix)
+    const { container, blobName } = await getTenantAzureContainerAndBlobName({
+      tenantId,
+      basePath,
+      userId,
+      fileName,
+    });
+    
+    const containerClient = await getAzureContainerClient(container);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     return blockBlobClient.url;
   } catch (error) {
     logger.error('[getAzureURL] Error retrieving blob URL:', error);
@@ -96,19 +125,31 @@ async function getAzureURL({ fileName, basePath = defaultBasePath, userId, conta
 
 /**
  * Deletes a blob from Azure Blob Storage.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId, basePath, fileName. No legacy path parsing.
+ * No `req` dependency - all parameters must be explicit.
  *
  * @param {Object} params
- * @param {ServerRequest} params.req - The Express request object.
- * @param {MongoFile} params.file - The file object.
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {string} params.basePath - Base path (e.g., 'images', 'documents', 'uploads')
+ * @param {string} params.fileName - File name
+ * @returns {Promise<void>}
  */
-async function deleteFileFromAzure(req, file) {
+async function deleteFileFromAzure({ tenantId, userId, basePath, fileName }) {
+  requireTenantId(tenantId, 'deleteFileFromAzure');
+  
   try {
-    const containerClient = await getAzureContainerClient(AZURE_CONTAINER_NAME);
-    const blobPath = file.filepath.split(`${AZURE_CONTAINER_NAME}/`)[1];
-    if (!blobPath.includes(req.user.id)) {
-      throw new Error('User ID not found in blob path');
-    }
-    const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+    // Get tenant-routed container and blob name (always uses tenant prefix)
+    const { container, blobName } = await getTenantAzureContainerAndBlobName({
+      tenantId,
+      basePath,
+      userId,
+      fileName,
+    });
+    
+    const containerClient = await getAzureContainerClient(container);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.delete();
     logger.debug('[deleteFileFromAzure] Blob deleted successfully from Azure Blob Storage');
   } catch (error) {
@@ -123,31 +164,42 @@ async function deleteFileFromAzure(req, file) {
 /**
  * Streams a file from disk directly to Azure Blob Storage without loading
  * the entire file into memory.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId. Uses tenant-routed container and blob name.
  *
  * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
  * @param {string} params.userId - The user's id.
  * @param {string} params.filePath - The local file path to upload.
  * @param {string} params.fileName - The name of the file in Azure.
  * @param {string} [params.basePath='images'] - The base folder within the container.
- * @param {string} [params.containerName] - The Azure Blob container name.
- * @returns {Promise<string>} The URL of the uploaded blob.
+ * @returns {Promise<string>} The URL of the uploaded blob (with tenant prefix).
  */
 async function streamFileToAzure({
+  tenantId,
   userId,
   filePath,
   fileName,
   basePath = defaultBasePath,
-  containerName,
 }) {
+  requireTenantId(tenantId, 'streamFileToAzure');
+  
   try {
-    const containerClient = await getAzureContainerClient(containerName);
+    // Get tenant-routed container and blob name (always uses tenant prefix)
+    const { container, blobName } = await getTenantAzureContainerAndBlobName({
+      tenantId,
+      basePath,
+      userId,
+      fileName,
+    });
+    
+    const containerClient = await getAzureContainerClient(container);
     const access = AZURE_STORAGE_PUBLIC_ACCESS?.toLowerCase() === 'true' ? 'blob' : undefined;
 
     // Create the container if it doesn't exist
     await containerClient.createIfNotExists({ access });
 
-    const blobPath = `${basePath}/${userId}/${fileName}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
     // Get file size for proper content length
     const stats = await fs.promises.stat(filePath);
@@ -181,38 +233,39 @@ async function streamFileToAzure({
 
 /**
  * Uploads a file from the local file system to Azure Blob Storage.
- *
- * This function reads the file from disk and then uploads it to Azure Blob Storage
- * at the path: {basePath}/{userId}/{fileName}.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId. No legacy path support.
  *
  * @param {Object} params
- * @param {object} params.req - The Express request object.
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
  * @param {Express.Multer.File} params.file - The file object.
  * @param {string} params.file_id - The file id.
  * @param {string} [params.basePath='images'] - The base folder within the container.
- * @param {string} [params.containerName] - The Azure Blob container name.
- * @returns {Promise<{ filepath: string, bytes: number }>} An object containing the blob URL and its byte size.
+ * @returns {Promise<{ filepath: string, bytes: number }>} An object containing the blob URL (with tenant prefix) and its byte size.
  */
 async function uploadFileToAzure({
-  req,
+  tenantId,
+  userId,
   file,
   file_id,
   basePath = defaultBasePath,
-  containerName,
 }) {
+  requireTenantId(tenantId, 'uploadFileToAzure');
+  
   try {
     const inputFilePath = file.path;
     const stats = await fs.promises.stat(inputFilePath);
     const bytes = stats.size;
-    const userId = req.user.id;
     const fileName = `${file_id}__${path.basename(inputFilePath)}`;
+    const uploadBasePath = basePath || 'uploads'; // Uploads use 'uploads' basePath
 
     const fileURL = await streamFileToAzure({
+      tenantId,
       userId,
       filePath: inputFilePath,
       fileName,
-      basePath,
-      containerName,
+      basePath: uploadBasePath,
     });
 
     return { filepath: fileURL, bytes };
@@ -224,16 +277,31 @@ async function uploadFileToAzure({
 
 /**
  * Retrieves a readable stream for a blob from Azure Blob Storage.
+ * 
+ * CLEAN-SLATE: Requires explicit tenantId, userId, basePath, fileName. No legacy URL parsing.
+ * Note: Azure streams use blob URLs, so we need to get the URL first using tenant-routed path.
  *
- * @param {object} _req - The Express request object.
- * @param {string} fileURL - The URL of the blob.
+ * @param {Object} params
+ * @param {string} params.tenantId - Tenant ID (REQUIRED)
+ * @param {string} params.userId - User ID
+ * @param {string} params.basePath - Base path (e.g., 'images', 'documents', 'uploads')
+ * @param {string} params.fileName - File name
  * @returns {Promise<ReadableStream>} A readable stream of the blob.
  */
-async function getAzureFileStream(_req, fileURL) {
+async function getAzureFileStream({ tenantId, userId, basePath, fileName }) {
+  requireTenantId(tenantId, 'getAzureFileStream');
+  
   try {
+    // Get download URL using tenant-routed path
+    const blobURL = await getAzureURL({ tenantId, userId, fileName, basePath });
+    
+    if (!blobURL) {
+      throw new Error('Failed to get Azure blob URL');
+    }
+    
     const response = await axios({
       method: 'get',
-      url: fileURL,
+      url: blobURL,
       responseType: 'stream',
     });
     return response.data;

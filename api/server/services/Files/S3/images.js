@@ -5,6 +5,7 @@ const { logger } = require('@librechat/data-schemas');
 const { resizeImageBuffer } = require('../images/resize');
 const { updateUser, updateFile } = require('~/models');
 const { saveBufferToS3 } = require('./crud');
+const { requireTenantId } = require('./tenantRouting');
 
 const defaultBasePath = 'images';
 
@@ -21,15 +22,18 @@ const defaultBasePath = 'images';
  * @returns {Promise<{ filepath: string, bytes: number, width: number, height: number }>}
  */
 async function uploadImageToS3({
-  req,
+  tenantId,
+  userId,
   file,
   file_id,
   endpoint,
   resolution = 'high',
   basePath = defaultBasePath,
+  appConfig,
 }) {
   try {
-    const appConfig = req.config;
+    requireTenantId(tenantId, 'uploadImageToS3');
+    
     const inputFilePath = file.path;
     const inputBuffer = await fs.promises.readFile(inputFilePath);
     const {
@@ -38,7 +42,6 @@ async function uploadImageToS3({
       height,
     } = await resizeImageBuffer(inputBuffer, resolution, endpoint);
     const extension = path.extname(inputFilePath);
-    const userId = req.user.id;
 
     let processedBuffer;
     let fileName = `${file_id}__${path.basename(inputFilePath)}`;
@@ -53,12 +56,13 @@ async function uploadImageToS3({
         fileName += targetExtension;
       }
     }
-
+    
     const downloadURL = await saveBufferToS3({
       userId,
       buffer: processedBuffer,
       fileName,
       basePath,
+      tenantId,
     });
     await fs.promises.unlink(inputFilePath);
     const bytes = Buffer.byteLength(processedBuffer);
@@ -95,9 +99,10 @@ async function prepareImageURLS3(req, file) {
  * @param {string} params.manual - 'true' or 'false' flag for manual update.
  * @param {string} [params.agentId] - Optional agent ID if this is an agent avatar.
  * @param {string} [params.basePath='images'] - Base path in the bucket.
+ * @param {string} [params.tenantId] - Tenant ID (required for tenant-scoped paths)
  * @returns {Promise<string>} Signed URL of the uploaded avatar.
  */
-async function processS3Avatar({ buffer, userId, manual, agentId, basePath = defaultBasePath }) {
+async function processS3Avatar({ buffer, userId, manual, agentId, basePath = defaultBasePath, tenantId }) {
   try {
     const metadata = await sharp(buffer).metadata();
     const extension = metadata.format === 'gif' ? 'gif' : 'png';
@@ -108,7 +113,9 @@ async function processS3Avatar({ buffer, userId, manual, agentId, basePath = def
       ? `agent-${agentId}-avatar-${timestamp}.${extension}`
       : `avatar-${timestamp}.${extension}`;
 
-    const downloadURL = await saveBufferToS3({ userId, buffer, fileName, basePath });
+    requireTenantId(tenantId, 'processS3Avatar');
+    
+    const downloadURL = await saveBufferToS3({ userId, buffer, fileName, basePath, tenantId });
 
     // Only update user record if this is a user avatar (manual === 'true')
     if (manual === 'true' && !agentId) {
