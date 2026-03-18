@@ -2,6 +2,7 @@ const { isEnabled } = require('@librechat/api');
 const { Time, CacheKeys, ViolationTypes } = require('librechat-data-provider');
 const clearPendingReq = require('~/cache/clearPendingReq');
 const { logViolation, getLogStores } = require('~/cache');
+const { requireTenantRedisPrefix } = require('~/cache/tenantRedisKey');
 const denyRequest = require('./denyRequest');
 
 const {
@@ -38,8 +39,9 @@ const concurrentLimiter = async (req, res, next) => {
   const userId = req.user?.id ?? req.user?._id ?? '';
   const limit = Math.max(CONCURRENT_MESSAGE_MAX, 1);
   const type = ViolationTypes.CONCURRENT;
-
-  const key = `${isEnabled(USE_REDIS) ? namespace : ''}:${userId}`;
+  const tenantId = req.tenantContext && req.tenantContext.tenantId;
+  const prefix = requireTenantRedisPrefix(tenantId, 'concurrentLimiter');
+  const key = `${prefix}${isEnabled(USE_REDIS) ? namespace : ''}:${userId}`;
   const pendingRequests = +((await cache.get(key)) ?? 0);
 
   if (pendingRequests >= limit) {
@@ -62,7 +64,11 @@ const concurrentLimiter = async (req, res, next) => {
       return;
     }
     cleared = true;
-    await clearPendingReq({ userId, cache });
+    await clearPendingReq({
+      userId,
+      cache,
+      tenantId: req.tenantContext && req.tenantContext.tenantId,
+    });
   };
 
   if (pendingRequests < limit) {

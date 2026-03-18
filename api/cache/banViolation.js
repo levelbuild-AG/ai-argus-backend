@@ -4,6 +4,7 @@ const { ViolationTypes } = require('librechat-data-provider');
 const { deleteAllUserSessions } = require('~/models');
 const { removePorts } = require('~/server/utils');
 const getLogStores = require('./getLogStores');
+const { getSystemRedisPrefix } = require('./tenantRedisKey');
 
 const { BAN_VIOLATIONS, BAN_INTERVAL } = process.env ?? {};
 const interval = math(BAN_INTERVAL, 20);
@@ -62,10 +63,11 @@ const banViolation = async (req, res, errorMessage) => {
     } minutes`,
   );
 
+  const systemPrefix = getSystemRedisPrefix();
   const expiresAt = Date.now() + duration;
-  await banLogs.set(user_id, { type, violation_count, duration, expiresAt });
+  await banLogs.set(systemPrefix + user_id, { type, violation_count, duration, expiresAt });
   if (req.ip) {
-    await banLogs.set(req.ip, { type, user_id, violation_count, duration, expiresAt });
+    await banLogs.set(systemPrefix + req.ip, { type, user_id, violation_count, duration, expiresAt });
   }
 
   errorMessage.ban = true;

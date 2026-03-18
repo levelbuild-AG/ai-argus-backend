@@ -6,10 +6,16 @@ const { ViolationTypes } = require('librechat-data-provider');
 const { removePorts } = require('~/server/utils');
 const denyRequest = require('./denyRequest');
 const { getLogStores } = require('~/cache');
+const { getSystemRedisPrefix } = require('~/cache/tenantRedisKey');
 const { findUser } = require('~/models');
 
 const banCache = new Keyv({ store: keyvMongo, namespace: ViolationTypes.BAN, ttl: 0 });
 const message = 'Your account has been temporarily banned due to violations of our service.';
+
+// Dev-only ban bypass flag. Default is false; when explicitly set to "true" in
+// local/dev, we skip ban enforcement but keep all other middleware behavior.
+const DEV_DISABLE_BAN_CHECK = process.env.DEV_DISABLE_BAN_CHECK === 'true';
+let devBypassWarned = false;
 
 /**
  * Respond to the request if the user is banned.
@@ -48,6 +54,22 @@ const checkBan = async (req, res, next = () => {}) => {
   try {
     const { BAN_VIOLATIONS } = process.env ?? {};
 
+    // Dev-only ban bypass for local/dev canonical stack.
+    if (DEV_DISABLE_BAN_CHECK) {
+      if (!devBypassWarned) {
+        logger.warn(
+          '[checkBan] DEV_DISABLE_BAN_CHECK=true – ban enforcement is DISABLED for this process (dev-only).',
+        );
+        devBypassWarned = true;
+      }
+      return next();
+    }
+
+    // In MT E2E stack, skip ban checks entirely to avoid test flakiness.
+    if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+      return next();
+    }
+
     if (!isEnabled(BAN_VIOLATIONS)) {
       return next();
     }
@@ -67,16 +89,17 @@ const checkBan = async (req, res, next = () => {}) => {
     let cachedIPBan;
     let cachedUserBan;
 
+    const systemPrefix = getSystemRedisPrefix();
     let ipKey = '';
     let userKey = '';
 
     if (req.ip) {
-      ipKey = isEnabled(process.env.USE_REDIS) ? `ban_cache:ip:${req.ip}` : req.ip;
+      ipKey = systemPrefix + (isEnabled(process.env.USE_REDIS) ? `ban_cache:ip:${req.ip}` : req.ip);
       cachedIPBan = await banCache.get(ipKey);
     }
 
     if (userId) {
-      userKey = isEnabled(process.env.USE_REDIS) ? `ban_cache:user:${userId}` : userId;
+      userKey = systemPrefix + (isEnabled(process.env.USE_REDIS) ? `ban_cache:user:${userId}` : userId);
       cachedUserBan = await banCache.get(userKey);
     }
 
@@ -98,11 +121,11 @@ const checkBan = async (req, res, next = () => {}) => {
     let userBan;
 
     if (req.ip) {
-      ipBan = await banLogs.get(req.ip);
+      ipBan = await banLogs.get(systemPrefix + req.ip);
     }
 
     if (userId) {
-      userBan = await banLogs.get(userId);
+      userBan = await banLogs.get(systemPrefix + userId);
     }
 
     const isBanned = !!(ipBan || userBan);

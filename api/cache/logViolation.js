@@ -1,6 +1,7 @@
 const { isEnabled } = require('@librechat/api');
 const { ViolationTypes } = require('librechat-data-provider');
 const getLogStores = require('./getLogStores');
+const { getSystemRedisPrefix } = require('./tenantRedisKey');
 const banViolation = require('./banViolation');
 
 /**
@@ -19,7 +20,8 @@ const logViolation = async (req, res, type, errorMessage, score = 1) => {
   }
   const logs = getLogStores(ViolationTypes.GENERAL);
   const violationLogs = getLogStores(type);
-  const key = isEnabled(process.env.USE_REDIS) ? `${type}:${userId}` : userId;
+  const systemPrefix = getSystemRedisPrefix();
+  const key = systemPrefix + (isEnabled(process.env.USE_REDIS) ? `${type}:${userId}` : userId);
 
   const userViolations = (await violationLogs.get(key)) ?? 0;
   const violationCount = +userViolations + +score;

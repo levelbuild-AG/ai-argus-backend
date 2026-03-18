@@ -130,7 +130,10 @@ const handleAbort = function () {
   return async function (req, res) {
     try {
       if (isEnabled(process.env.LIMIT_CONCURRENT_MESSAGES)) {
-        await clearPendingReq({ userId: req.user.id });
+        await clearPendingReq({
+          userId: req.user.id,
+          tenantId: req.tenantContext && req.tenantContext.tenantId,
+        });
       }
       return await abortMessage(req, res);
     } catch (err) {
