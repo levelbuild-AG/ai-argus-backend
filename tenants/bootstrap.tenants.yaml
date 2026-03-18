@@ -1,0 +1,74 @@
+tenants:
+  - tenantId: tenant-levelbuild
+    name: levelbuild
+    dbUri: mongodb://tenant-mongo:27017/tenant_levelbuild
+    config:
+      storage:
+        provider: s3
+        bucket: bucket-a
+        prefix: tenant-levelbuild/
+      rag:
+        postgresUri: postgres://myuser:mypassword@postgres:5432/tenant_levelbuild
+        vectorDbType: pgvector
+      googleServiceKeyEnv: TENANT_LEVELBUILD_GOOGLE_KEY_JSON
+
+  - tenantId: tenant-jaeger
+    name: jaeger
+    dbUri: mongodb://tenant-mongo:27017/tenant_jaeger
+    config:
+      storage:
+        provider: s3
+        bucket: bucket-a
+        prefix: tenant-jaeger/
+      rag:
+        postgresUri: postgres://myuser:mypassword@postgres:5432/tenant_jaeger
+        vectorDbType: pgvector
+
+  - tenantId: tenant-mainka
+    name: mainka
+    dbUri: mongodb://tenant-mongo:27017/tenant_mainka
+    config:
+      storage:
+        provider: s3
+        bucket: bucket-a
+        prefix: tenant-mainka/
+      rag:
+        postgresUri: postgres://myuser:mypassword@postgres:5432/tenant_mainka
+        vectorDbType: pgvector
+
+  - tenantId: tenant-spitzke
+    name: spitzke
+    dbUri: mongodb://tenant-mongo:27017/tenant_spitzke
+    config:
+      storage:
+        provider: s3
+        bucket: bucket-a
+        prefix: tenant-spitzke/
+      rag:
+        postgresUri: postgres://myuser:mypassword@postgres:5432/tenant_spitzke
+        vectorDbType: pgvector
+
+  - tenantId: tenant-bd
+    name: "B&D"
+    dbUri: mongodb://tenant-mongo:27017/tenant_bd
+    config:
+      storage:
+        provider: s3
+        bucket: bucket-a
+        prefix: tenant-bd/
+      rag:
+        postgresUri: postgres://myuser:mypassword@postgres:5432/tenant_bd
+        vectorDbType: pgvector
+
+  - tenantId: tenant-bickhardt
+    name: bickhardt
+    dbUri: mongodb://tenant-mongo:27017/tenant_bickhardt
+    config:
+      storage:
+        provider: s3
+        bucket: bucket-a
+        prefix: tenant-bickhardt/
+      rag:
+        postgresUri: postgres://myuser:mypassword@postgres:5432/tenant_bickhardt
+        vectorDbType: pgvector
+
