@@ -8,10 +8,27 @@ const {
 } = require('@librechat/api');
 const { getUserKeyValues, checkUserKeyExpiry } = require('~/server/services/UserService');
 const OpenAIClient = require('~/app/clients/OpenAIClient');
+const { loadTenantOpenAICredentials } = require('./tenantClient');
 
+/**
+ * Initialize OpenAI client. In multi-tenant mode, tenantId is required for the openAI endpoint
+ * and must be passed explicitly or via req.tenantContext.tenantId (set by tenant middleware).
+ *
+ * @param {Object} params
+ * @param {Object} params.req - Express request (must have req.tenantContext.tenantId in multi-tenant mode for openAI)
+ * @param {Object} params.res - Express response
+ * @param {string} [params.tenantId] - Tenant ID (optional; resolved from req.tenantContext.tenantId if not provided)
+ * @param {Object} [params.endpointOption] - Endpoint options
+ * @param {boolean} [params.optionsOnly] - If true, return config only
+ * @param {string} [params.overrideEndpoint] - Override endpoint
+ * @param {string} [params.overrideModel] - Override model
+ * @returns {Promise<{ client?: import('~/app/clients/OpenAIClient'), openAIApiKey: string }>}
+ * @throws {Error} If multi-tenancy enabled and tenantId missing for openAI endpoint
+ */
 const initializeClient = async ({
   req,
   res,
+  tenantId: providedTenantId,
   endpointOption,
   optionsOnly,
   overrideEndpoint,
@@ -31,6 +48,9 @@ const initializeClient = async ({
   const modelName = overrideModel ?? req.body.model;
   const endpoint = overrideEndpoint ?? req.body.endpoint;
   const contextStrategy = isEnabled(OPENAI_SUMMARIZE) ? 'summarize' : null;
+
+  // CRITICAL: In multi-tenant mode for openAI endpoint, tenantId MUST be provided
+  let tenantId = providedTenantId ?? req?.tenantContext?.tenantId;
 
   const credentials = {
     [EModelEndpoint.openAI]: OPENAI_API_KEY,
@@ -53,6 +73,20 @@ const initializeClient = async ({
 
   let apiKey = userProvidesKey ? userValues?.apiKey : credentials[endpoint];
   let baseURL = userProvidesURL ? userValues?.baseURL : baseURLOptions[endpoint];
+
+  // Multi-tenant mode: openAI endpoint uses tenant secrets only (no process.env fallback)
+  if (isMultiTenancyEnabled() && endpoint === EModelEndpoint.openAI) {
+    if (!tenantId) {
+      throw new Error(
+        'Tenant ID required for OpenAI client initialization in multi-tenant mode. ' +
+          'Pass tenantId explicitly or ensure req.tenantContext.tenantId is set.',
+      );
+    }
+    const tenantCreds = await loadTenantOpenAICredentials(tenantId);
+    if (!userProvidesKey) {
+      apiKey = tenantCreds.openAiApiKey;
+    }
+  }
 
   let clientOptions = {
     contextStrategy,

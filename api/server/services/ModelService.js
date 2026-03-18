@@ -6,6 +6,7 @@ const { logAxiosError, inputSchema, processModelData } = require('@librechat/api
 const { EModelEndpoint, defaultModels, CacheKeys } = require('librechat-data-provider');
 const { OllamaClient } = require('~/app/clients/OllamaClient');
 const { isUserProvided } = require('~/server/utils');
+const { loadTenantAnthropicCredentials } = require('~/server/services/Endpoints/anthropic/tenantClient');
 const getLogStores = require('~/cache/getLogStores');
 const { extractBaseURL } = require('~/utils');
 
@@ -318,21 +319,28 @@ const getChatGPTBrowserModels = () => {
 
 /**
  * Fetches models from the Anthropic API.
+ * API key must be passed in opts.apiKey when multi-tenancy is enabled (no process.env fallback).
+ *
  * @async
  * @function
  * @param {object} opts - The options for fetching the models.
  * @param {string} opts.user - The user ID to send to the API.
+ * @param {string} [opts.apiKey] - API key (required in tenant mode; in single-tenant mode falls back to process.env).
  * @param {string[]} [_models=[]] - The models to use as a fallback.
  */
 const fetchAnthropicModels = async (opts, _models = []) => {
   let models = _models.slice() ?? [];
-  let apiKey = process.env.ANTHROPIC_API_KEY;
   const anthropicBaseURL = 'https://api.anthropic.com/v1';
   let baseURL = anthropicBaseURL;
   let reverseProxyUrl = process.env.ANTHROPIC_REVERSE_PROXY;
 
   if (reverseProxyUrl) {
     baseURL = extractBaseURL(reverseProxyUrl);
+  }
+
+  let apiKey = opts.apiKey;
+  if (apiKey == null || apiKey === '') {
+    return models;
   }
 
   if (!apiKey) {
@@ -364,6 +372,15 @@ const fetchAnthropicModels = async (opts, _models = []) => {
   return models;
 };
 
+/**
+ * Get Anthropic models. In multi-tenant mode requires explicit opts.tenantId and uses tenant config only (no process.env fallback).
+ *
+ * @param {Object} opts - Options.
+ * @param {string} [opts.user] - User ID for the API.
+ * @param {string} [opts.tenantId] - Tenant ID (required when MULTI_TENANCY_ENABLED=true).
+ * @returns {Promise<string[]>}
+ * @throws {Error} When multi-tenancy enabled and tenantId missing or tenant secret missing.
+ */
 const getAnthropicModels = async (opts = {}) => {
   let models = defaultModels[EModelEndpoint.anthropic];
   if (process.env.ANTHROPIC_MODELS) {
@@ -371,12 +388,31 @@ const getAnthropicModels = async (opts = {}) => {
     return models;
   }
 
+  if (isMultiTenancyEnabled()) {
+    if (!opts.tenantId) {
+      throw new Error(
+        'Tenant ID required for Anthropic models in multi-tenant mode. ' +
+          'Pass tenantId explicitly (e.g. from req.tenantContext.tenantId).',
+      );
+    }
+    try {
+      const { anthropicApiKey } = await loadTenantAnthropicCredentials(opts.tenantId);
+      return await fetchAnthropicModels({ ...opts, apiKey: anthropicApiKey }, models);
+    } catch (error) {
+      logger.error('Error fetching Anthropic models (tenant):', error);
+      return models;
+    }
+  }
+
   if (isUserProvided(process.env.ANTHROPIC_API_KEY)) {
     return models;
   }
 
   try {
-    return await fetchAnthropicModels(opts, models);
+    return await fetchAnthropicModels(
+      { ...opts, apiKey: process.env.ANTHROPIC_API_KEY },
+      models,
+    );
   } catch (error) {
     logger.error('Error fetching Anthropic models:', error);
     return models;

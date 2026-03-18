@@ -1163,6 +1163,12 @@ class AgentClient extends BaseClient {
       });
     }
 
+    const languageInstruction =
+      ' Respond in the same language as the user\'s first message (e.g. if the user wrote in German, the title must be in German).';
+    const titlePromptWithLanguage =
+      (endpointConfig?.titlePrompt || 'Generate a descriptive title for this agent conversation.') +
+      languageInstruction;
+
     try {
       const titleResult = await this.run.generateTitle({
         provider,
@@ -1170,7 +1176,7 @@ class AgentClient extends BaseClient {
         inputText: text,
         contentParts: this.contentParts,
         titleMethod: endpointConfig?.titleMethod,
-        titlePrompt: endpointConfig?.titlePrompt,
+        titlePrompt: titlePromptWithLanguage,
         titlePromptTemplate: endpointConfig?.titlePromptTemplate,
         chainOptions: {
           signal: abortController.signal,

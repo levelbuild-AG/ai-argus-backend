@@ -3,18 +3,20 @@ const { logger } = require('@librechat/data-schemas');
 const { CacheKeys } = require('librechat-data-provider');
 const getLogStores = require('~/cache/getLogStores');
 const { saveConvo } = require('~/models');
+const { getTenantModels } = require('~/db/tenantHelpers');
 
 /**
- * Add title to conversation in a way that avoids memory retention
+ * Add title to conversation in a way that avoids memory retention.
+ * @returns {Promise<string|undefined>} The generated title, or undefined if none/failed.
  */
 const addTitle = async (req, { text, response, client }) => {
   const { TITLE_CONVO = true } = process.env ?? {};
   if (!isEnabled(TITLE_CONVO)) {
-    return;
+    return undefined;
   }
 
   if (client.options.titleConvo === false) {
-    return;
+    return undefined;
   }
 
   const titleCache = getLogStores(CacheKeys.GEN_TITLE);
@@ -43,7 +45,7 @@ const addTitle = async (req, { text, response, client }) => {
         timeoutPromise,
       ]);
     } else {
-      return;
+      return undefined;
     }
 
     const title = await titlePromise;
@@ -56,10 +58,17 @@ const addTitle = async (req, { text, response, client }) => {
 
     if (!title) {
       logger.debug(`[${key}] No title generated`);
-      return;
+      return undefined;
     }
 
     await titleCache.set(key, title, 120000);
+    // Use tenant-scoped models when in tenant context so title persists to tenant DB, not system DB
+    let models;
+    try {
+      models = await getTenantModels();
+    } catch (_) {
+      models = undefined;
+    }
     await saveConvo(
       req,
       {
@@ -67,9 +76,12 @@ const addTitle = async (req, { text, response, client }) => {
         title,
       },
       { context: 'api/server/services/Endpoints/agents/title.js' },
+      models,
     );
+    return title;
   } catch (error) {
     logger.error('Error generating title:', error);
+    return undefined;
   }
 };
 

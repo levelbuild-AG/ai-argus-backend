@@ -66,6 +66,7 @@ router.get('/', requireJwtAuth, async (req, res) => {
       params.sortBy,
       params.sortDirection,
       params.search,
+      req.tenantContext?.tenantId,
     );
 
     res.status(200).send({

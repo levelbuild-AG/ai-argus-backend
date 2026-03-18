@@ -23,6 +23,11 @@ const uaParser = require('./uaParser');
 const checkBan = require('./checkBan');
 const noIndex = require('./noIndex');
 const roles = require('./roles');
+const {
+  optionalTenantContext,
+  requireTenantContext,
+  getTenantContext,
+} = require('./tenantContext');
 
 module.exports = {
   ...abortMiddleware,
@@ -50,4 +55,7 @@ module.exports = {
   buildEndpointOption,
   validateRegistration,
   validatePasswordReset,
+  optionalTenantContext,
+  requireTenantContext,
+  getTenantContext,
 };

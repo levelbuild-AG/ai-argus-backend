@@ -21,6 +21,11 @@ async function uaParser(req, res, next) {
   const { NON_BROWSER_VIOLATION_SCORE: score = 20 } = process.env;
   const ua = uap(req.headers['user-agent']);
 
+  // In MT E2E stack, bypass UA enforcement to allow test clients.
+  if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+    return next();
+  }
+
   if (!ua.browser.name) {
     const type = ViolationTypes.NON_BROWSER;
     await logViolation(req, res, type, { type }, score);

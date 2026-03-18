@@ -65,9 +65,15 @@ const escapeRegex = (str = '') => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * via {@link CacheKeys.S3_EXPIRY_INTERVAL} so we refresh once per interval at most.
  * @param {Array} agents - Agents being enriched with S3-backed avatars
  * @param {string} userId - User identifier used for the cache refresh key
+ * @param {string} tenantId - Tenant ID (required for tenant-scoped S3 operations)
  */
-const refreshListAvatars = async (agents, userId) => {
+const refreshListAvatars = async (agents, userId, tenantId) => {
   if (!agents?.length) {
+    return;
+  }
+  
+  if (!tenantId) {
+    logger.warn('[refreshListAvatars] Tenant ID missing, skipping S3 avatar refresh');
     return;
   }
 
@@ -85,7 +91,19 @@ const refreshListAvatars = async (agents, userId) => {
       }
 
       try {
-        const newPath = await refreshS3Url(agent.avatar);
+        // CLEAN-SLATE: Require explicit metadata (no URL parsing)
+        if (!agent.avatar?.userId || !agent.avatar?.filename) {
+          logger.debug(`[/Agents] Avatar ${agent.id} missing metadata (userId, filename). Skipping refresh.`);
+          return;
+        }
+        const basePath = 'images'; // Avatars use images basePath
+        const newPath = await refreshS3Url({
+          tenantId,
+          userId: agent.avatar.userId,
+          basePath,
+          fileName: agent.avatar.filename,
+          currentUrl: agent.avatar.filepath,
+        });
         if (newPath && newPath !== agent.avatar.filepath) {
           agent.avatar = { ...agent.avatar, filepath: newPath };
         }
@@ -191,7 +209,13 @@ const getAgentHandler = async (req, res, expandProperties = false) => {
       try {
         agent.avatar = {
           ...agent.avatar,
-          filepath: await refreshS3Url(agent.avatar),
+          filepath: await refreshS3Url({
+            tenantId: req?.tenantContext?.tenantId,
+            userId: agent.avatar?.userId || req.user.id,
+            basePath: 'images',
+            fileName: agent.avatar?.filename || 'avatar',
+            currentUrl: agent.avatar?.filepath || '',
+          }),
         };
       } catch (e) {
         logger.warn('[/Agents/:id] Failed to refresh S3 URL', e);
@@ -566,7 +590,8 @@ const getListAgentsHandler = async (req, res) => {
 
     // Opportunistically refresh S3 avatar URLs for list results with caching
     try {
-      await refreshListAvatars(data.data, req.user.id);
+      const tenantId = req?.tenantContext?.tenantId;
+      await refreshListAvatars(data.data, req.user.id, tenantId);
     } catch (err) {
       logger.debug('[/Agents] Skipping avatar refresh for list', err);
     }
@@ -607,18 +632,26 @@ const uploadAgentAvatarHandler = async (req, res) => {
     }
 
     const buffer = await fs.readFile(req.file.path);
-    const fileStrategy = getFileStrategy(appConfig, { isAvatar: true });
+    // Extract tenantId from request context
+    const tenantId = req?.tenantContext?.tenantId;
+    if (!tenantId) {
+      throw new Error('Tenant ID required for avatar upload. Ensure requireTenantContext middleware runs before this route.');
+    }
+    
+    const fileStrategy = await getFileStrategy(appConfig, { isAvatar: true, tenantId });
     const resizedBuffer = await resizeAvatar({
       userId: req.user.id,
       input: buffer,
     });
 
     const { processAvatar } = getStrategyFunctions(fileStrategy);
+    
     const avatarUrl = await processAvatar({
       buffer: resizedBuffer,
       userId: req.user.id,
       manual: 'false',
       agentId: agent_id,
+      tenantId,
     });
 
     const image = {

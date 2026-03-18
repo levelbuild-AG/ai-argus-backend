@@ -61,8 +61,28 @@ const getUserController = async (req, res) => {
     }
     const originalAvatar = userData.avatar;
     try {
-      userData.avatar = await getNewS3URL(userData.avatar);
-      await updateUser(userData.id, { avatar: userData.avatar });
+      // Extract tenantId from request context (required for tenant-scoped operations)
+      const tenantId = req?.tenantContext?.tenantId;
+      if (!tenantId) {
+        logger.warn('[getUserController] Tenant ID missing, skipping S3 avatar refresh');
+        return res.status(200).send(userData);
+      }
+      
+      // Extract fileName from avatar URL path (e.g., "tenant/tenant-123/images/user-456/avatar-123.png")
+      // This is acceptable since we're extracting metadata from an existing URL, not parsing for routing
+      const avatarUrl = new URL(userData.avatar);
+      const pathParts = avatarUrl.pathname.split('/').filter(Boolean);
+      const fileName = pathParts[pathParts.length - 1] || 'avatar';
+      
+      userData.avatar = await getNewS3URL({
+        tenantId,
+        userId: req.user.id,
+        basePath: 'images',
+        fileName,
+      });
+      if (userData.avatar) {
+        await updateUser(userData.id, { avatar: userData.avatar });
+      }
     } catch (error) {
       userData.avatar = originalAvatar;
       logger.error('Error getting new S3 URL for avatar:', error);

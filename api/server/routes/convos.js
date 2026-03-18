@@ -13,18 +13,21 @@ const { getConvosByCursor, deleteConvos, getConvo, saveConvo } = require('~/mode
 const { forkConversation, duplicateConversation } = require('~/server/utils/import/fork');
 const { storage, importFileFilter } = require('~/server/routes/files/multer');
 const { deleteAllSharedLinks, deleteConvoSharedLink } = require('~/models');
-const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
 const { importConversations } = require('~/server/utils/import');
 const { deleteToolCalls } = require('~/models/ToolCall');
 const getLogStores = require('~/cache/getLogStores');
+const getModelsFromReq = require('~/server/utils/getTenantModelsFromReq');
+const mongoose = require('mongoose');
 
 const assistantClients = {
   [EModelEndpoint.azureAssistants]: require('~/server/services/Endpoints/azureAssistants'),
   [EModelEndpoint.assistants]: require('~/server/services/Endpoints/assistants'),
 };
 
+const middleware = require('~/server/middleware');
+
 const router = express.Router();
-router.use(requireJwtAuth);
+router.use(middleware.requireJwtAuth, middleware.requireTenantContext);
 
 router.get('/', async (req, res) => {
   const limit = parseInt(req.query.limit, 10) || 25;
@@ -39,14 +42,42 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    const result = await getConvosByCursor(req.user.id, {
-      cursor,
-      limit,
-      isArchived,
-      tags,
-      search,
-      order,
-    });
+    const models = await getModelsFromReq(req);
+    
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
+
+    // Assertion: verify tenant models. Reference-only (no side effects, no extra DB).
+    if (models) {
+      const systemModels = require('~/db/models');
+      if (models.Conversation === systemModels.Conversation) {
+        const error = new Error('[DEV ASSERTION FAILED] THIS IS A BUG: Conversation model is from system connection, expected tenant connection');
+        logger.error(error.message);
+        throw error;
+      }
+      // Verify model is bound to tenant connection (not system)
+      if (models.Conversation.db === mongoose.connection) {
+        const error = new Error('[DEV ASSERTION FAILED] THIS IS A BUG: Conversation model.db is system connection, expected tenant connection');
+        logger.error(error.message);
+        throw error;
+      }
+    }
+    
+    const result = await getConvosByCursor(
+      req.user.id,
+      {
+        cursor,
+        limit,
+        isArchived,
+        tags,
+        search,
+        order,
+        tenantId: req.tenantContext?.tenantId,
+      },
+      models,
+    );
     res.status(200).json(result);
   } catch (error) {
     logger.error('Error fetching conversations', error);
@@ -56,12 +87,22 @@ router.get('/', async (req, res) => {
 
 router.get('/:conversationId', async (req, res) => {
   const { conversationId } = req.params;
-  const convo = await getConvo(req.user.id, conversationId);
+  try {
+    const models = await getModelsFromReq(req);
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
+    const convo = await getConvo(req.user.id, conversationId, models);
 
-  if (convo) {
-    res.status(200).json(convo);
-  } else {
-    res.status(404).end();
+    if (convo) {
+      res.status(200).json(convo);
+    } else {
+      res.status(404).end();
+    }
+  } catch (error) {
+    logger.error('Error fetching conversation', error);
+    res.status(500).json({ error: 'Error fetching conversation' });
   }
 });
 
@@ -124,9 +165,14 @@ router.delete('/', async (req, res) => {
   }
 
   try {
-    const dbResponse = await deleteConvos(req.user.id, filter);
+    const models = await getModelsFromReq(req);
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
+    const dbResponse = await deleteConvos(req.user.id, filter, models);
     if (filter.conversationId) {
-      await deleteToolCalls(req.user.id, filter.conversationId);
+      await deleteToolCalls(req.user.id, filter.conversationId, models);
       await deleteConvoSharedLink(req.user.id, filter.conversationId);
     }
     res.status(201).json(dbResponse);
@@ -138,8 +184,13 @@ router.delete('/', async (req, res) => {
 
 router.delete('/all', async (req, res) => {
   try {
-    const dbResponse = await deleteConvos(req.user.id, {});
-    await deleteToolCalls(req.user.id);
+    const models = await getModelsFromReq(req);
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
+    const dbResponse = await deleteConvos(req.user.id, {}, models);
+    await deleteToolCalls(req.user.id, undefined, models);
     await deleteAllSharedLinks(req.user.id);
     res.status(201).json(dbResponse);
   } catch (error) {
@@ -156,9 +207,14 @@ router.post('/update', async (req, res) => {
   }
 
   try {
+    const models = await getModelsFromReq(req);
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
     const dbResponse = await saveConvo(req, update, {
       context: `POST /api/convos/update ${update.conversationId}`,
-    });
+    }, models);
     res.status(201).json(dbResponse);
   } catch (error) {
     logger.error('Error updating conversation', error);
@@ -184,8 +240,13 @@ router.post(
   upload.single('file'),
   async (req, res) => {
     try {
+      const models = await getModelsFromReq(req);
+      // Guard: fail fast if models missing (tenant routes always require tenant models)
+      if (!models) {
+        throw new Error('Tenant models required for this route.');
+      }
       /* TODO: optimize to return imported conversations and add manually */
-      await importConversations({ filepath: req.file.path, requestUserId: req.user.id });
+      await importConversations({ filepath: req.file.path, requestUserId: req.user.id, models });
       res.status(201).json({ message: 'Conversation(s) imported successfully' });
     } catch (error) {
       logger.error('Error processing file', error);
@@ -204,6 +265,11 @@ router.post(
  */
 router.post('/fork', forkIpLimiter, forkUserLimiter, async (req, res) => {
   try {
+    const models = await getModelsFromReq(req);
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
     /** @type {TForkConvoRequest} */
     const { conversationId, messageId, option, splitAtTarget, latestMessageId } = req.body;
     const result = await forkConversation({
@@ -214,6 +280,7 @@ router.post('/fork', forkIpLimiter, forkUserLimiter, async (req, res) => {
       records: true,
       splitAtTarget,
       option,
+      models,
     });
 
     res.json(result);
@@ -227,10 +294,16 @@ router.post('/duplicate', async (req, res) => {
   const { conversationId, title } = req.body;
 
   try {
+    const models = await getModelsFromReq(req);
+    // Guard: fail fast if models missing (tenant routes always require tenant models)
+    if (!models) {
+      throw new Error('Tenant models required for this route.');
+    }
     const result = await duplicateConversation({
       userId: req.user.id,
       conversationId,
       title,
+      models,
     });
     res.status(201).json(result);
   } catch (error) {

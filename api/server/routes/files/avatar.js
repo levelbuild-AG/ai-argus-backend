@@ -20,16 +20,22 @@ router.post('/', async (req, res) => {
       throw new Error('User ID is undefined');
     }
 
-    const fileStrategy = getFileStrategy(appConfig, { isAvatar: true });
+    // Extract tenantId from request context
+    const tenantId = req?.tenantContext?.tenantId;
+    if (!tenantId) {
+      throw new Error('Tenant ID required for avatar upload. Ensure requireTenantContext middleware runs before this route.');
+    }
+    
+    const fileStrategy = await getFileStrategy(appConfig, { isAvatar: true, tenantId });
     const desiredFormat = appConfig.imageOutputType;
     const resizedBuffer = await resizeAvatar({
       userId,
       input,
       desiredFormat,
     });
-
+    
     const { processAvatar } = getStrategyFunctions(fileStrategy);
-    const url = await processAvatar({ buffer: resizedBuffer, userId, manual });
+    const url = await processAvatar({ buffer: resizedBuffer, userId, manual, tenantId });
 
     res.json({ url });
   } catch (error) {

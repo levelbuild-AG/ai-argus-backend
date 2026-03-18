@@ -13,6 +13,10 @@ const { getProjectByName } = require('~/models/Project');
 const { getMCPManager } = require('~/config');
 const { getLogStores } = require('~/cache');
 const { mcpServersRegistry } = require('@librechat/api');
+const { getTenantConfigFromReq } = require('~/db/tenantHelpers');
+const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
+const { requireTenantContext } = require('~/server/middleware/tenantContext');
+const { checkAdmin } = require('~/server/middleware/roles');
 
 const router = express.Router();
 const emailLoginEnabled =
@@ -196,6 +200,33 @@ router.get('/', async function (req, res) {
   } catch (err) {
     logger.error('Error in startup config', err);
     return res.status(500).send({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/config/tenant
+ * 
+ * Returns tenant-specific configuration (settings only, no secrets) for the authenticated user's tenant.
+ * Requires admin role, authentication, and tenant context.
+ * 
+ * This is a proof endpoint for TenantConfigService - demonstrates that tenant configs are loaded and accessible.
+ * 
+ * SECURITY: Admin-only to prevent exposure of internal config (enabled providers, feature flags, limits).
+ * In development mode, this restriction may be relaxed for testing (see middleware check).
+ */
+router.get('/tenant', requireJwtAuth, requireTenantContext, checkAdmin, async function (req, res) {
+  try {
+    const tenantConfig = await getTenantConfigFromReq(req);
+    
+    // Return settings only (no secrets)
+    res.status(200).json({
+      tenantId: req.user.tenantId,
+      settings: tenantConfig.settings,
+      // Explicitly exclude secrets - never return secrets via API
+    });
+  } catch (error) {
+    logger.error('Error fetching tenant config', error);
+    return res.status(500).json({ error: 'Error fetching tenant config', message: error.message });
   }
 });
 

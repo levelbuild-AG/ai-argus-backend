@@ -10,6 +10,7 @@ const {
 } = require('~/server/middleware');
 const chatRouter = require('~/server/routes/agents/chat');
 const requireExtUserAuth = require('~/server/middleware/requireExtUserAuth');
+const extV2RequireTenantContext = require('~/server/middleware/extV2TenantContext');
 const internalPathShimV2 = require('~/server/middleware/internalPathShimV2');
 let EndpointURLs;
 try {
@@ -52,7 +53,8 @@ const { LIMIT_CONCURRENT_MESSAGES, LIMIT_MESSAGE_IP, LIMIT_MESSAGE_USER } = proc
 
 const router = express.Router();
 
-router.use(requireExtUserAuth);
+router.use(requireExtUserAuth); // 1. Auth first (sets req.user)
+router.use(extV2RequireTenantContext); // 2. Tenant context second (uses req.user.tenantId)
 router.use(checkBan);
 router.use(uaParser);
 

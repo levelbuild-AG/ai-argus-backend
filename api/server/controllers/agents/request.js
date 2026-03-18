@@ -237,6 +237,25 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
       delete userMessage.image_urls;
     }
 
+    // Generate title for new conversations so the final event can include it (client gets title immediately).
+    // Wait up to 5s so we don't delay the response too long; cleanup runs after title promise settles.
+    const TITLE_WAIT_MS = 5000;
+    let titlePromise = null;
+    if (addTitle && parentMessageId === Constants.NO_PARENT && newConvo) {
+      titlePromise = addTitle(req, {
+        text,
+        response: { ...response },
+        client,
+      });
+      const generatedTitle = await Promise.race([
+        titlePromise.then((t) => t ?? undefined),
+        new Promise((resolve) => setTimeout(() => resolve(undefined), TITLE_WAIT_MS)),
+      ]);
+      if (generatedTitle) {
+        conversation.title = generatedTitle;
+      }
+    }
+
     // Only send if not aborted
     if (!abortController.signal.aborted) {
       // Create a new response object with minimal copies
@@ -288,21 +307,16 @@ const AgentController = async (req, res, next, initializeClient, addTitle) => {
       });
     }
 
-    // Add title if needed - extract minimal data
-    if (addTitle && parentMessageId === Constants.NO_PARENT && newConvo) {
-      addTitle(req, {
-        text,
-        response: { ...response },
-        client,
-      })
-        .then(() => {
-          logger.debug('[AgentController] Title generation started');
+    // Defer cleanup until title generation finishes (so client is not disposed while titleConvo runs)
+    if (titlePromise) {
+      titlePromise
+        .then((t) => {
+          if (t) logger.debug('[AgentController] Title generation completed');
         })
         .catch((err) => {
           logger.error('[AgentController] Error in title generation', err);
         })
         .finally(() => {
-          logger.debug('[AgentController] Title generation completed');
           performCleanup();
         });
     } else {

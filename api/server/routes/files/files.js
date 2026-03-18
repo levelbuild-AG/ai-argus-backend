@@ -44,7 +44,12 @@ router.get('/', async (req, res) => {
         const cache = getLogStores(CacheKeys.S3_EXPIRY_INTERVAL);
         const alreadyChecked = await cache.get(req.user.id);
         if (!alreadyChecked) {
-          await refreshS3FileUrls(files, batchUpdateFiles);
+          // Extract tenantId from request context
+          const tenantId = req?.tenantContext?.tenantId;
+          if (!tenantId) {
+            throw new Error('Tenant ID required for S3 file URL refresh. Ensure requireTenantContext middleware runs before this route.');
+          }
+          await refreshS3FileUrls(files, batchUpdateFiles, tenantId);
           await cache.set(req.user.id, true, Time.THIRTY_MINUTES);
         }
       } catch (error) {
@@ -351,7 +356,8 @@ router.get('/download/:userId/:file_id', fileAccess, async (req, res) => {
 
       stream.pipe(res);
     } else {
-      const fileStream = await getDownloadStream(req, file.filepath);
+      // For S3, pass file object (not just filepath) to extract metadata
+      const fileStream = await getDownloadStream(req, file);
 
       fileStream.on('error', (streamError) => {
         logger.error('[DOWNLOAD ROUTE] Stream error:', streamError);
@@ -385,6 +391,14 @@ router.post('/', async (req, res) => {
     let message = 'Error processing file';
     logger.error('[/files] Error processing file:', error);
 
+    if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+      logger.error('[MT-E2E] /api/files failed', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack,
+      });
+    }
+
     if (error.message?.includes('file_ids')) {
       message += ': ' + error.message;
     }
@@ -398,18 +412,33 @@ router.post('/', async (req, res) => {
     }
 
     try {
-      await fs.unlink(req.file.path);
-      cleanup = false;
-    } catch (error) {
-      logger.error('[/files] Error deleting file:', error);
+      if (req.file?.path) {
+        await fs.unlink(req.file.path);
+        cleanup = false;
+      }
+    } catch (unlinkErr) {
+      logger.error('[/files] Error deleting file:', unlinkErr);
     }
-    res.status(500).json({ message });
+
+    if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+      return res.status(500).json({
+        message,
+        debug: {
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+          issues: error?.issues,
+        },
+      });
+    }
+
+    return res.status(500).json({ message });
   } finally {
-    if (cleanup) {
+    if (cleanup && req.file?.path) {
       try {
         await fs.unlink(req.file.path);
-      } catch (error) {
-        logger.error('[/files] Error deleting file after file processing:', error);
+      } catch (err) {
+        logger.error('[/files] Error deleting file after file processing:', err);
       }
     } else {
       logger.debug('[/files] File processing completed without cleanup');

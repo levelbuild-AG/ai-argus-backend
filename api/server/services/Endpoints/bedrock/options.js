@@ -1,48 +1,35 @@
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const {
-  AuthType,
-  EModelEndpoint,
   bedrockInputParser,
   bedrockOutputParser,
   removeNullishValues,
 } = require('librechat-data-provider');
-const { getUserKey, checkUserKeyExpiry } = require('~/server/services/UserService');
+const { loadTenantBedrockCredentials } = require('./tenantClient');
 
 const getOptions = async ({ req, overrideModel, endpointOption }) => {
-  const {
-    BEDROCK_AWS_SECRET_ACCESS_KEY,
-    BEDROCK_AWS_ACCESS_KEY_ID,
-    BEDROCK_AWS_SESSION_TOKEN,
-    BEDROCK_REVERSE_PROXY,
-    BEDROCK_AWS_DEFAULT_REGION,
-    PROXY,
-  } = process.env;
-  const expiresAt = req.body.key;
-  const isUserProvided = BEDROCK_AWS_SECRET_ACCESS_KEY === AuthType.USER_PROVIDED;
-
-  let credentials = isUserProvided
-    ? await getUserKey({ userId: req.user.id, name: EModelEndpoint.bedrock })
-    : {
-        accessKeyId: BEDROCK_AWS_ACCESS_KEY_ID,
-        secretAccessKey: BEDROCK_AWS_SECRET_ACCESS_KEY,
-        ...(BEDROCK_AWS_SESSION_TOKEN && { sessionToken: BEDROCK_AWS_SESSION_TOKEN }),
-      };
-
-  if (!credentials) {
-    throw new Error('Bedrock credentials not provided. Please provide them again.');
+  const { PROXY } = process.env;
+  
+  // ALWAYS-ON MULTI-TENANCY: Multi-tenancy is the only supported mode. Credentials come from tenant config only.
+  // No process.env fallback. Fail-hard if tenantId missing.
+  
+  // Require tenantId from request context
+  const tenantId = req?.tenantContext?.tenantId;
+  if (!tenantId) {
+    throw new Error(
+      '[getOptions] Tenant ID is required for Bedrock operations. ' +
+      'Ensure requireTenantContext middleware runs before Bedrock endpoint calls.'
+    );
   }
-
-  if (
-    !isUserProvided &&
-    (credentials.accessKeyId === undefined || credentials.accessKeyId === '') &&
-    (credentials.secretAccessKey === undefined || credentials.secretAccessKey === '')
-  ) {
-    credentials = undefined;
-  }
-
-  if (expiresAt && isUserProvided) {
-    checkUserKeyExpiry(expiresAt, EModelEndpoint.bedrock);
-  }
+  
+  // Load credentials from tenant config (no process.env fallback)
+  const tenantCreds = await loadTenantBedrockCredentials(tenantId);
+  const credentials = {
+    accessKeyId: tenantCreds.accessKeyId,
+    secretAccessKey: tenantCreds.secretAccessKey,
+    ...(tenantCreds.sessionToken && { sessionToken: tenantCreds.sessionToken }),
+  };
+  const region = tenantCreds.region;
+  const endpointHost = tenantCreds.endpointHost;
 
   /*
   Callback for stream rate no longer awaits and may end the stream prematurely
@@ -65,7 +52,7 @@ const getOptions = async ({ req, overrideModel, endpointOption }) => {
   /** @type {BedrockClientOptions} */
   const requestOptions = {
     model: overrideModel ?? endpointOption?.model,
-    region: BEDROCK_AWS_DEFAULT_REGION,
+    region: region,
   };
 
   const configOptions = {};
@@ -84,8 +71,8 @@ const getOptions = async ({ req, overrideModel, endpointOption }) => {
     llmConfig.credentials = credentials;
   }
 
-  if (BEDROCK_REVERSE_PROXY) {
-    llmConfig.endpointHost = BEDROCK_REVERSE_PROXY;
+  if (endpointHost) {
+    llmConfig.endpointHost = endpointHost;
   }
 
   return {
