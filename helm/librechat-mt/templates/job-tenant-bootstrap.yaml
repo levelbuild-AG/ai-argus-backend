@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-tenant-bootstrap
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+spec:
+  template:
+    metadata:
+      labels:
+        job: tenant-bootstrap
+        {{- include "librechat-mt.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: tenant-bootstrap
+          image: node:22-alpine
+          command: ["node", "/app/scripts/provision-tenants.js"]
+          env:
+            - name: API_URL
+              value: "http://{{ include "librechat-mt.fullname" . }}-api"
+            - name: ADMIN_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat-mt.fullname" . }}-secrets
+                  key: ADMIN_AUTH_SECRET
+            - name: TENANT_LEVELBUILD_GOOGLE_KEY_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat-mt.fullname" . }}-bootstrap-secrets
+                  key: TENANT_LEVELBUILD_GOOGLE_KEY_JSON
+          volumeMounts:
+            - name: bootstrap-scripts
+              mountPath: /app/scripts
+            - name: bootstrap-config
+              mountPath: /app/tenants
+      volumes:
+        - name: bootstrap-scripts
+          configMap:
+            name: {{ include "librechat-mt.fullname" . }}-bootstrap-scripts
+        - name: bootstrap-config
+          configMap:
+            name: {{ include "librechat-mt.fullname" . }}-bootstrap-scripts
+

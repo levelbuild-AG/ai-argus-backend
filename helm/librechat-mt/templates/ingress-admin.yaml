@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-admin
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+  annotations:
+    # Admin ingress is expected to be internal-only; enforce this at the gateway / network layer.
+    kubernetes.io/ingress.class: "internal"
+spec:
+  rules:
+    - host: {{ .Values.ingress.host | default "admin.local" }}
+      http:
+        paths:
+          - path: /api/admin
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "librechat-mt.fullname" . }}-api
+                port:
+                  number: 80
+

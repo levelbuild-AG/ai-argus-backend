@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-bootstrap-scripts
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+data:
+  provision-tenants.js: |
+{{ .Files.Get "scripts/provision-tenants.js" | indent 4 }}
+  bootstrap.tenants.yaml: |
+{{ .Files.Get "tenants/bootstrap.tenants.yaml" | indent 4 }}

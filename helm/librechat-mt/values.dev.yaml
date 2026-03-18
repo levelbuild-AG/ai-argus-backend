@@ -1,0 +1,21 @@
+api:
+  replicas: 1
+
+ragApi:
+  replicas: 1
+
+mongo:
+  enabled: true
+
+postgres:
+  enabled: true
+
+redis:
+  enabled: true
+
+meilisearch:
+  enabled: true
+
+minio:
+  enabled: true
+

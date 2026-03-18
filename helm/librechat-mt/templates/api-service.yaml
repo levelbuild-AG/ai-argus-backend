@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-api
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: api
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3080
+

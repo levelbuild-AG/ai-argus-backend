@@ -1,0 +1,86 @@
+{{- if eq .Values.api.workloadType "deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-api
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      {{- include "librechat-mt.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api
+        {{- include "librechat-mt.labels" . | nindent 8 }}
+    spec:
+      envFrom:
+        - configMapRef:
+            name: {{ include "librechat-mt.fullname" . }}-env
+        - secretRef:
+            name: {{ include "librechat-mt.fullname" . }}-secrets
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - containerPort: 3080
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /ext/v2/health
+              port: http
+            initialDelaySeconds: {{ .Values.api.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.api.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /ext/v2/health
+              port: http
+            initialDelaySeconds: {{ .Values.api.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.api.readinessProbe.failureThreshold }}
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3080"
+            {{- if .Values.mongo.enabled }}
+            - name: MONGO_URI
+              value: {{ printf "mongodb://%s-mongo:27017/LibreChat" (include "librechat-mt.fullname" .) | quote }}
+            - name: SYSTEM_MONGO_URI
+              value: {{ printf "mongodb://%s-mongo:27017/LibreChat" (include "librechat-mt.fullname" .) | quote }}
+            {{- else if .Values.mongo.uri }}
+            - name: MONGO_URI
+              value: {{ .Values.mongo.uri | quote }}
+            - name: SYSTEM_MONGO_URI
+              value: {{ .Values.mongo.uri | quote }}
+            {{- end }}
+            {{- if .Values.meilisearch.enabled }}
+            - name: MEILI_HOST
+              value: {{ .Values.meilisearch.host | quote }}
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "librechat-mt.fullname" . }}-secrets
+                  key: MEILI_MASTER_KEY
+            {{- end }}
+            {{- if .Values.postgres.enabled }}
+            - name: RAG_API_URL
+              value: {{ printf "http://%s-rag-api:8000" (include "librechat-mt.fullname" .) | quote }}
+            {{- end }}
+            {{- if and .Values.redis.enabled .Values.redis.uri }}
+            - name: USE_REDIS
+              value: "true"
+            - name: REDIS_URI
+              value: {{ .Values.redis.uri | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+{{- end }}
+

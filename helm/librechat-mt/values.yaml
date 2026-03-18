@@ -1,0 +1,83 @@
+api:
+  image:
+    repository: ghcr.io/danny-avila/librechat-dev-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  workloadType: deployment # deployment | knativeService
+  replicas: 2
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+ragApi:
+  image:
+    repository: ghcr.io/danny-avila/librechat-rag-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  workloadType: deployment # deployment | knativeService
+  replicas: 1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+ingress:
+  enabled: true
+  host: librechat.local
+  tls: false
+
+mongo:
+  enabled: false
+  uri: "" # external Mongo URI when enabled=false
+
+postgres:
+  enabled: false
+  dsn: "" # external Postgres DSN for rag_api / pgvector
+
+redis:
+  enabled: false
+  uri: "" # external Redis URI
+
+meilisearch:
+  enabled: false
+  host: ""  # e.g. http://meilisearch:7700
+  masterKey: ""
+
+minio:
+  enabled: false
+
+env:
+  MULTI_TENANCY_ENABLED: "true"
+
+secrets:
+  adminAuthSecret: ""
+  ragInternalAuthSecret: ""
+  tenantLevelbuildGoogleKeyJson: ""
+

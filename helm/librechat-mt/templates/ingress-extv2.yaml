@@ -1,0 +1,21 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-extv2
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "librechat-mt.fullname" . }}-api
+                port:
+                  number: 80
+{{- end }}
+

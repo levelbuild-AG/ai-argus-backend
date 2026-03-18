@@ -1,0 +1,23 @@
+api:
+  replicas: 2
+  workloadType: deployment
+
+ragApi:
+  replicas: 1
+  workloadType: deployment
+
+mongo:
+  enabled: false
+
+postgres:
+  enabled: false
+
+redis:
+  enabled: false
+
+meilisearch:
+  enabled: false
+
+minio:
+  enabled: false
+

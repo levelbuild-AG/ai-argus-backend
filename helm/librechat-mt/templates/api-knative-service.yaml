@@ -1,0 +1,23 @@
+{{- if eq .Values.api.workloadType "knativeService" }}
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: {{ include "librechat-mt.fullname" . }}-api
+  labels:
+    {{- include "librechat-mt.labels" . | nindent 4 }}
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api
+        {{- include "librechat-mt.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3080"
+{{- end }}
+
