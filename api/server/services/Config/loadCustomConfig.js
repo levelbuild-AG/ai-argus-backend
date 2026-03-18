@@ -49,6 +49,16 @@ async function loadCustomConfig(printConfig = true) {
       return null;
     }
 
+    // Special-case: ENOENT (file not found) should be treated as "no custom config", not "invalid YAML"
+    if (customConfig.code === 'ENOENT') {
+      i === 0 &&
+        logger.info(
+          `Custom config file not found at ${configPath}. Proceeding without librechat.yaml overrides.`,
+        );
+      i === 0 && i++;
+      return null;
+    }
+
     if (customConfig.reason || customConfig.stack) {
       i === 0 && logger.error('Config file YAML format is invalid:', customConfig);
       i === 0 && i++;

@@ -12,10 +12,13 @@ const { logger } = require('@librechat/data-schemas');
 const mongoSanitize = require('express-mongo-sanitize');
 const {
   isEnabled,
+  isMultiTenancyEnabled,
   ErrorController,
   performStartupChecks,
   initializeFileStorage,
 } = require('@librechat/api');
+const middleware = require('~/server/middleware');
+const { optionalTenantContext, requireTenantContext } = middleware;
 const { connectDb, indexSync } = require('~/db');
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
 const createValidateImageRequest = require('./middleware/validateImageRequest');
@@ -39,6 +42,18 @@ const {
   TRUST_PROXY,
   EXTERNAL_API_ENABLED,
 } = process.env ?? {};
+
+// MT E2E: log crashes and keep process alive for diagnostics
+if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+  process.on('unhandledRejection', (reason) => {
+    // eslint-disable-next-line no-console
+    console.error('[MT-E2E] unhandledRejection', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    // eslint-disable-next-line no-console
+    console.error('[MT-E2E] uncaughtException', err);
+  });
+}
 
 const boolTrue = new Set(['1', 'true', 'yes', 'on']);
 const parseCsv = (value = '') =>
@@ -110,6 +125,13 @@ const startServer = async () => {
   await connectDb();
 
   logger.info('Connected to MongoDB');
+  
+  // Multi-tenancy feature flag check
+  const multiTenancyEnabled = isMultiTenancyEnabled();
+  logger.info(
+    `MULTI_TENANCY_ENABLED=${multiTenancyEnabled} (${multiTenancyEnabled ? 'multi-tenant' : 'single-tenant'} mode)`,
+  );
+  
   indexSync().catch((err) => {
     logger.error('[indexSync] Background sync failed:', err);
   });
@@ -118,6 +140,15 @@ const startServer = async () => {
   app.set('trust proxy', trusted_proxy);
 
   await seedDatabase();
+  
+  // Initialize tenant configs (if multi-tenancy enabled)
+  const { initializeTenantConfigs } = require('./services/start/tenantConfigInit');
+  await initializeTenantConfigs();
+
+  // Always-on MT: single authoritative assertion (DB + TenantConfigService; fails startup if broken)
+  const { assertAlwaysOnMTWiring } = require('./services/start/assertAlwaysOnMTWiring');
+  assertAlwaysOnMTWiring();
+
   const appConfig = await getAppConfig();
   initializeFileStorage(appConfig);
   await performStartupChecks(appConfig);
@@ -185,41 +216,53 @@ const startServer = async () => {
     await configureSocialLogins(app);
   }
 
+  // Tenant context middleware (optional, non-blocking)
+  // Mounted after auth setup but before routes
+  // Extracts tenantId from req.user.tenantId when available
+  app.use(optionalTenantContext);
+
   app.use('/oauth', routes.oauth);
   /* API Endpoints */
   app.use('/api/auth', routes.auth);
   app.use('/api/actions', routes.actions);
   app.use('/api/keys', routes.keys);
   app.use('/api/user', routes.user);
-  app.use('/api/search', routes.search);
-  app.use('/api/edit', routes.edit);
-  app.use('/api/messages', routes.messages);
-  app.use('/api/convos', routes.convos);
-  app.use('/api/presets', routes.presets);
-  app.use('/api/prompts', routes.prompts);
-  app.use('/api/categories', routes.categories);
-  app.use('/api/tokenizer', routes.tokenizer);
-  app.use('/api/endpoints', routes.endpoints);
-  app.use('/api/balance', routes.balance);
-  app.use('/api/models', routes.models);
-  app.use('/api/plugins', routes.plugins);
+  app.use('/api/search', requireTenantContext, routes.search);
+  app.use('/api/edit', requireTenantContext, routes.edit);
+  app.use('/api/messages', requireTenantContext, routes.messages);
+  app.use('/api/convos', middleware.requireJwtAuth, requireTenantContext, routes.convos);
+  app.use('/api/presets', requireTenantContext, routes.presets);
+  app.use('/api/prompts', requireTenantContext, routes.prompts);
+  app.use('/api/categories', requireTenantContext, routes.categories);
+  app.use('/api/tokenizer', requireTenantContext, routes.tokenizer);
+  app.use('/api/endpoints', requireTenantContext, routes.endpoints);
+  app.use('/api/balance', requireTenantContext, routes.balance);
+  app.use('/api/models', requireTenantContext, routes.models);
+  app.use('/api/plugins', requireTenantContext, routes.plugins);
   app.use('/api/config', routes.config);
-  app.use('/api/assistants', routes.assistants);
-  app.use('/api/files', await routes.files.initialize());
+  app.use('/api/assistants', requireTenantContext, routes.assistants);
+  app.use('/api/files', middleware.requireJwtAuth, requireTenantContext, await routes.files.initialize());
   app.use('/images/', createValidateImageRequest(appConfig.secureImageLinks), routes.staticRoute);
-  app.use('/api/share', routes.share);
+  app.use('/api/share', requireTenantContext, routes.share);
   app.use('/api/roles', routes.roles);
-  app.use('/api/agents', routes.agents);
-  app.use('/api/banner', routes.banner);
-  app.use('/api/memories', routes.memories);
+  app.use('/api/agents', requireTenantContext, routes.agents);
+  app.use('/api/banner', requireTenantContext, routes.banner);
+  app.use('/api/memories', requireTenantContext, routes.memories);
   app.use('/api/permissions', routes.accessPermissions);
 
-  app.use('/api/tags', routes.tags);
-  app.use('/api/mcp', routes.mcp);
+  app.use('/api/tags', requireTenantContext, routes.tags);
+  app.use('/api/mcp', requireTenantContext, routes.mcp);
+
+  const requireAdminHeader = require('./middleware/requireAdminHeader');
+  const adminRateLimiter = require('./middleware/adminRateLimiter');
+  app.use('/api/admin', requireAdminHeader, adminRateLimiter, routes.admin);
 
   const externalApiEnabled = isEnabled(EXTERNAL_API_ENABLED);
   if (externalApiEnabled) {
     if (routes.ext?.v2) {
+      // ext/v2 routes: requireExtUserAuth runs INSIDE each route file (sets req.user)
+      // requireTenantContext is added AFTER requireExtUserAuth in each route file
+      // Public routes (/health, /meta) bypass both auth and tenant context
       app.use('/ext/v2', routes.ext.v2);
       logger.info('External API mounted at /ext/v2');
     } else {
@@ -263,6 +306,11 @@ startServer();
 
 let messageCount = 0;
 process.on('uncaughtException', (err) => {
+  if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+    // eslint-disable-next-line no-console
+    console.error('[MT-E2E] uncaughtException', err);
+    return;
+  }
   if (!err.message.includes('fetch failed')) {
     logger.error('There was an uncaught error:', err);
   }
