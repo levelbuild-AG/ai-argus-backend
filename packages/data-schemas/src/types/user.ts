@@ -10,6 +10,7 @@ export interface IUser extends Document {
   avatar?: string;
   provider: string;
   role?: string;
+  tenantId?: string; // HC-1: Optional initially for backward compatibility
   googleId?: string;
   facebookId?: string;
   openidId?: string;

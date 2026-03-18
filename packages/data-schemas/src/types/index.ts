@@ -25,5 +25,7 @@ export * from './prompts';
 export * from './accessRole';
 export * from './aclEntry';
 export * from './group';
+/* Tenant */
+export * from './tenant';
 /* Web */
 export * from './web';

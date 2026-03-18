@@ -2,6 +2,21 @@ import mongoose, { FilterQuery } from 'mongoose';
 import type { IUser, BalanceConfig, CreateUserRequest, UserDeleteResult } from '~/types';
 import { signPayload } from '~/crypto';
 
+/**
+ * Check if multi-tenancy is enabled (local env read to avoid cross-package dependency)
+ * This avoids importing from @librechat/api which could create circular dependencies
+ */
+function isMultiTenancyEnabled(): boolean {
+  const value = process.env.MULTI_TENANCY_ENABLED;
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return value.toLowerCase().trim() === 'true';
+  }
+  return false;
+}
+
 /** Factory function that takes mongoose instance and returns the methods */
 export function createUserMethods(mongoose: typeof import('mongoose')) {
   /**
@@ -46,6 +61,12 @@ export function createUserMethods(mongoose: typeof import('mongoose')) {
 
     if (disableTTL) {
       delete userData.expiresAt;
+    }
+
+    // HC-1: Assign tenantId when multi-tenancy is enabled
+    // If tenantId is not provided and flag is enabled, default to 'legacy'
+    if (isMultiTenancyEnabled() && !userData.tenantId) {
+      userData.tenantId = 'legacy';
     }
 
     const user = await User.create(userData);

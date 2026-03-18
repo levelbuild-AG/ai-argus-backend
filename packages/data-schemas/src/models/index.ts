@@ -25,9 +25,13 @@ import { createMemoryModel } from './memory';
 import { createAccessRoleModel } from './accessRole';
 import { createAclEntryModel } from './aclEntry';
 import { createGroupModel } from './group';
+import { createTenantModel } from './tenant';
 
 /**
  * Creates all database models for all collections
+ * 
+ * NOTE: Tenant model is created on the system connection (the mongoose instance passed here).
+ * Tenant-scoped models (Conversation, Message, etc.) will be created on tenant connections separately.
  */
 export function createModels(mongoose: typeof import('mongoose')) {
   return {
@@ -58,5 +62,6 @@ export function createModels(mongoose: typeof import('mongoose')) {
     AccessRole: createAccessRoleModel(mongoose),
     AclEntry: createAclEntryModel(mongoose),
     Group: createGroupModel(mongoose),
+    Tenant: createTenantModel(mongoose),
   };
 }

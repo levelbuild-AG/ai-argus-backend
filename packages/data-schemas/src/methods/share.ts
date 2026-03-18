@@ -211,6 +211,7 @@ export function createShareMethods(mongoose: typeof import('mongoose')) {
     sortBy: string = 'createdAt',
     sortDirection: string = 'desc',
     search?: string,
+    tenantId?: string,
   ): Promise<t.SharedLinksResult> {
     try {
       const SharedLink = mongoose.models.SharedLink as Model<t.ISharedLink>;
@@ -227,9 +228,12 @@ export function createShareMethods(mongoose: typeof import('mongoose')) {
 
       if (search && search.trim()) {
         try {
-          const searchResults = await Conversation.meiliSearch(search, {
-            filter: `user = "${user}"`,
-          });
+          // Use tenant-specific Meilisearch index
+          if (!tenantId) {
+            throw new Error('Tenant ID required for shared links search');
+          }
+          const { searchConvos } = require('~/server/services/Meilisearch/tenantMeiliService');
+          const searchResults = await searchConvos({ tenantId, userId: user, query: search });
 
           if (!searchResults?.hits?.length) {
             return {

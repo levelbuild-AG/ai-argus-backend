@@ -37,7 +37,6 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: [true, "can't be blank"],
       lowercase: true,
-      unique: true,
       match: [/\S+@\S+\.\S+/, 'is invalid'],
       index: true,
     },
@@ -65,6 +64,13 @@ const userSchema = new Schema<IUser>(
     role: {
       type: String,
       default: SystemRoles.USER,
+    },
+    tenantId: {
+      type: String,
+      required: false, // HC-1: Optional initially for backward compatibility
+      index: true,
+      lowercase: true,
+      sparse: true, // Allow null/undefined values
     },
     googleId: {
       type: String,
@@ -143,8 +149,8 @@ const userSchema = new Schema<IUser>(
     },
     platformUserId: {
       type: String,
-      unique: true,
       sparse: true,
+      index: true,
     },
     /** Field for external source identification (for consistency with TPrincipal schema) */
     idOnTheSource: {
@@ -154,5 +160,12 @@ const userSchema = new Schema<IUser>(
   },
   { timestamps: true },
 );
+
+// Multi-tenant identity indexes:
+// - Enforce uniqueness of (tenantId, email) so the same email can exist in multiple tenants,
+//   but only once per tenant.
+// - Enforce uniqueness of (tenantId, platformUserId) for external_v2 identities.
+userSchema.index({ tenantId: 1, email: 1 }, { unique: true, sparse: true });
+userSchema.index({ tenantId: 1, platformUserId: 1 }, { unique: true, sparse: true });
 
 export default userSchema;
