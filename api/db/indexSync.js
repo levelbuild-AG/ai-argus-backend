@@ -2,8 +2,10 @@ const mongoose = require('mongoose');
 const { MeiliSearch } = require('meilisearch');
 const { logger } = require('@librechat/data-schemas');
 const { CacheKeys } = require('librechat-data-provider');
-const { isEnabled, FlowStateManager } = require('@librechat/api');
+const { isEnabled, FlowStateManager, isMultiTenancyEnabled } = require('@librechat/api');
 const { getLogStores } = require('~/cache');
+const { getTenantConnectionManager } = require('./TenantConnectionManager');
+const { Tenant } = require('~/db/models');
 
 const Conversation = mongoose.models.Conversation;
 const Message = mongoose.models.Message;
@@ -182,6 +184,48 @@ async function ensureFilterableAttributes(client) {
 }
 
 /**
+ * Sync conversations for a specific tenant
+ * @param {string} tenantId - Tenant ID
+ * @param {Object} tenantModels - Tenant-scoped models
+ * @param {boolean} forceFullSync - Force full re-sync
+ * @returns {Promise<boolean>} True if sync occurred
+ */
+async function syncTenantConversations(tenantId, tenantModels, forceFullSync = false) {
+  const Conversation = tenantModels.Conversation;
+  if (!Conversation) {
+    return false;
+  }
+
+  const convoProgress = await Conversation.getSyncProgress();
+  if (convoProgress.isComplete && !forceFullSync) {
+    logger.debug(
+      `[indexSync] Tenant ${tenantId} conversations already synced: ${convoProgress.totalProcessed}/${convoProgress.totalDocuments}`,
+    );
+    return false;
+  }
+
+  logger.info(
+    `[indexSync] Syncing conversations for tenant ${tenantId}: ${convoProgress.totalProcessed}/${convoProgress.totalDocuments} indexed`,
+  );
+
+  const convoCount = await Conversation.countDocuments();
+  const convosIndexed = convoProgress.totalProcessed;
+  const syncThreshold = parseInt(process.env.MEILI_SYNC_THRESHOLD || '1000', 10);
+
+  if (convoCount - convosIndexed > syncThreshold || forceFullSync) {
+    logger.info(`[indexSync] Starting full conversation sync for tenant ${tenantId}`);
+    await Conversation.syncWithMeili();
+    return true;
+  } else if (convoCount !== convosIndexed) {
+    logger.warn(`[indexSync] Tenant ${tenantId} conversations out of sync, performing incremental sync`);
+    await Conversation.syncWithMeili();
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Performs the actual sync operations for messages and conversations
  * @param {FlowStateManager} flowManager - Flow state manager instance
  * @param {string} flowId - Flow identifier
@@ -201,12 +245,42 @@ async function performSync(flowManager, flowId, flowType) {
       return { messagesSync: false, convosSync: false };
     }
 
+    let messagesSync = false;
+    let convosSync = false;
+
+    // Multi-tenant mode: sync per-tenant
+    if (isMultiTenancyEnabled()) {
+      logger.info('[indexSync] Multi-tenancy enabled, syncing per-tenant indexes');
+
+      // Enumerate all active tenants
+      const tenants = await Tenant.find({ status: 'active' }).select('tenantId').lean();
+      logger.info(`[indexSync] Found ${tenants.length} active tenants to sync`);
+
+      const manager = getTenantConnectionManager();
+      let tenantSyncCount = 0;
+
+      for (const tenant of tenants) {
+        try {
+          const tenantModels = await manager.getModels(tenant.tenantId);
+          const didSync = await syncTenantConversations(tenant.tenantId, tenantModels, false);
+          if (didSync) {
+            tenantSyncCount++;
+            convosSync = true;
+          }
+        } catch (error) {
+          logger.error(`[indexSync] Error syncing tenant ${tenant.tenantId}:`, error);
+          // Continue with other tenants
+        }
+      }
+
+      logger.info(`[indexSync] Synced ${tenantSyncCount} tenant(s)`);
+      return { messagesSync, convosSync };
+    }
+
+    // Single-tenant mode: sync system models (legacy behavior)
     /** Ensures indexes have proper filterable attributes configured */
     const { settingsUpdated, orphanedDocsFound: _orphanedDocsFound } =
       await ensureFilterableAttributes(client);
-
-    let messagesSync = false;
-    let convosSync = false;
 
     // Only reset flags if settings were actually updated (not just for orphaned doc cleanup)
     if (settingsUpdated) {

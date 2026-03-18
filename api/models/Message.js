@@ -1,7 +1,7 @@
 const { z } = require('zod');
 const { logger } = require('@librechat/data-schemas');
 const { createTempChatExpirationDate } = require('@librechat/api');
-const { Message } = require('~/db/models');
+const { Message: GlobalMessage } = require('~/db/models');
 
 const idSchema = z.string().uuid();
 
@@ -34,11 +34,12 @@ const idSchema = z.string().uuid();
  * @returns {Promise<TMessage>} The updated or newly inserted message document.
  * @throws {Error} If there is an error in saving the message.
  */
-async function saveMessage(req, params, metadata) {
+async function saveMessage(req, params, metadata, models) {
   if (!req?.user?.id) {
     throw new Error('User not authenticated');
   }
 
+  const Message = models?.Message || GlobalMessage;
   const validConvoId = idSchema.safeParse(params.conversationId);
   if (!validConvoId.success) {
     logger.warn(`Invalid conversation ID: ${params.conversationId}`);
@@ -135,8 +136,9 @@ async function saveMessage(req, params, metadata) {
  * @returns {Promise<Object>} The result of the bulk write operation.
  * @throws {Error} If there is an error in saving messages in bulk.
  */
-async function bulkSaveMessages(messages, overrideTimestamp = false) {
+async function bulkSaveMessages(messages, overrideTimestamp = false, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     const bulkOps = messages.map((message) => ({
       updateOne: {
         filter: { messageId: message.messageId },
@@ -168,15 +170,19 @@ async function bulkSaveMessages(messages, overrideTimestamp = false) {
  * @returns {Promise<Object>} The updated or newly inserted message document.
  * @throws {Error} If there is an error in saving the message.
  */
-async function recordMessage({
-  user,
-  endpoint,
-  messageId,
-  conversationId,
-  parentMessageId,
-  ...rest
-}) {
+async function recordMessage(
+  {
+    user,
+    endpoint,
+    messageId,
+    conversationId,
+    parentMessageId,
+    ...rest
+  },
+  models,
+) {
   try {
+    const Message = models?.Message || GlobalMessage;
     // No parsing of convoId as may use threadId
     const message = {
       user,
@@ -209,8 +215,9 @@ async function recordMessage({
  * @returns {Promise<void>}
  * @throws {Error} If there is an error in updating the message text.
  */
-async function updateMessageText(req, { messageId, text }) {
+async function updateMessageText(req, { messageId, text }, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     await Message.updateOne({ messageId, user: req.user.id }, { text });
   } catch (err) {
     logger.error('Error updating message text:', err);
@@ -236,8 +243,9 @@ async function updateMessageText(req, { messageId, text }) {
  * @returns {Promise<TMessage>} The updated message document.
  * @throws {Error} If there is an error in updating the message or if the message is not found.
  */
-async function updateMessage(req, message, metadata) {
+async function updateMessage(req, message, metadata, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     const { messageId, ...update } = message;
     const updatedMessage = await Message.findOneAndUpdate(
       { messageId, user: req.user.id },
@@ -282,8 +290,9 @@ async function updateMessage(req, message, metadata) {
  * @returns {Promise<Number>} The number of deleted messages.
  * @throws {Error} If there is an error in deleting messages.
  */
-async function deleteMessagesSince(req, { messageId, conversationId }) {
+async function deleteMessagesSince(req, { messageId, conversationId }, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     const message = await Message.findOne({ messageId, user: req.user.id }).lean();
 
     if (message) {
@@ -308,8 +317,9 @@ async function deleteMessagesSince(req, { messageId, conversationId }) {
  * @returns {Promise<TMessage[]>} The messages that match the filter criteria.
  * @throws {Error} If there is an error in retrieving messages.
  */
-async function getMessages(filter, select) {
+async function getMessages(filter, select, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     if (select) {
       return await Message.find(filter).select(select).sort({ createdAt: 1 }).lean();
     }
@@ -329,8 +339,9 @@ async function getMessages(filter, select) {
  * @returns {Promise<TMessage | null>} The message that matches the criteria or null if not found
  * @throws {Error} If there is an error in retrieving the message
  */
-async function getMessage({ user, messageId }) {
+async function getMessage({ user, messageId }, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     return await Message.findOne({
       user,
       messageId,
@@ -350,8 +361,9 @@ async function getMessage({ user, messageId }) {
  * @returns {Promise<import('mongoose').DeleteResult>} The metadata with count of deleted messages.
  * @throws {Error} If there is an error in deleting messages.
  */
-async function deleteMessages(filter) {
+async function deleteMessages(filter, models) {
   try {
+    const Message = models?.Message || GlobalMessage;
     return await Message.deleteMany(filter);
   } catch (err) {
     logger.error('Error deleting messages:', err);

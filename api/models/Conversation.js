@@ -1,7 +1,7 @@
 const { logger } = require('@librechat/data-schemas');
 const { createTempChatExpirationDate } = require('@librechat/api');
 const { getMessages, deleteMessages } = require('./Message');
-const { Conversation } = require('~/db/models');
+const { Conversation: GlobalConversation } = require('~/db/models');
 
 /**
  * Searches for a conversation by conversationId and returns a lean document with only conversationId and user.
@@ -21,10 +21,12 @@ const searchConversation = async (conversationId) => {
  * Retrieves a single conversation for a given user and conversation ID.
  * @param {string} user - The user's ID.
  * @param {string} conversationId - The conversation's ID.
+ * @param {Object} [models] - Optional tenant-scoped models (Conversation, Message)
  * @returns {Promise<TConversation>} The conversation object.
  */
-const getConvo = async (user, conversationId) => {
+const getConvo = async (user, conversationId, models) => {
   try {
+    const Conversation = models?.Conversation || GlobalConversation;
     return await Conversation.findOne({ user, conversationId }).lean();
   } catch (error) {
     logger.error('[getConvo] Error getting single conversation', error);
@@ -32,8 +34,9 @@ const getConvo = async (user, conversationId) => {
   }
 };
 
-const deleteNullOrEmptyConversations = async () => {
+const deleteNullOrEmptyConversations = async (models) => {
   try {
+    const Conversation = models?.Conversation || GlobalConversation;
     const filter = {
       $or: [
         { conversationId: null },
@@ -45,7 +48,7 @@ const deleteNullOrEmptyConversations = async () => {
     const result = await Conversation.deleteMany(filter);
 
     // Delete associated messages
-    const messageDeleteResult = await deleteMessages(filter);
+    const messageDeleteResult = await deleteMessages(filter, models);
 
     logger.info(
       `[deleteNullOrEmptyConversations] Deleted ${result.deletedCount} conversations and ${messageDeleteResult.deletedCount} messages`,
@@ -66,8 +69,9 @@ const deleteNullOrEmptyConversations = async () => {
  * @param {string} conversationId - The conversation's ID.
  * @returns {Promise<string[] | null>}
  */
-const getConvoFiles = async (conversationId) => {
+const getConvoFiles = async (conversationId, models) => {
   try {
+    const Conversation = models?.Conversation || GlobalConversation;
     return (await Conversation.findOne({ conversationId }, 'files').lean())?.files ?? [];
   } catch (error) {
     logger.error('[getConvoFiles] Error getting conversation files', error);
@@ -84,15 +88,17 @@ module.exports = {
    * @param {Object} req - The request object.
    * @param {string} conversationId - The conversation's ID.
    * @param {Object} metadata - Additional metadata to log for operation.
+   * @param {Object} [models] - Optional tenant-scoped models (Conversation, Message)
    * @returns {Promise<TConversation>} The conversation object.
    */
-  saveConvo: async (req, { conversationId, newConversationId, ...convo }, metadata) => {
+  saveConvo: async (req, { conversationId, newConversationId, ...convo }, metadata, models) => {
     try {
       if (metadata?.context) {
         logger.debug(`[saveConvo] ${metadata.context}`);
       }
 
-      const messages = await getMessages({ conversationId }, '_id');
+      const Conversation = models?.Conversation || GlobalConversation;
+      const messages = await getMessages({ conversationId }, '_id', models);
       const update = { ...convo, messages, user: req.user.id };
 
       if (newConversationId) {
@@ -127,8 +133,45 @@ module.exports = {
           upsert: true,
         },
       );
+      const convoObject = conversation.toObject();
 
-      return conversation.toObject();
+      // Fire-and-forget: index in tenant Meilisearch (never await; never throw)
+      try {
+        const tenantId = req?.tenantContext?.tenantId;
+        if (tenantId) {
+          Promise.resolve().then(async () => {
+            try {
+              const { indexConvos } = require('~/server/services/Meilisearch/tenantMeiliService');
+              await indexConvos({
+                tenantId,
+                docs: [
+                  {
+                    conversationId: convoObject.conversationId,
+                    user: convoObject.user?.toString?.() || req.user.id,
+                    title: convoObject.title,
+                    createdAt: convoObject.createdAt,
+                    updatedAt: convoObject.updatedAt,
+                  },
+                ],
+              });
+            } catch (e) {
+              logger.warn('[MT] Meili indexConvos failed (non-fatal)', {
+                name: e?.name,
+                message: e?.message,
+                code: e?.code,
+                type: e?.type,
+              });
+            }
+          });
+        }
+      } catch (e) {
+        logger.warn('[MT] Meili indexing hook setup failed (non-fatal)', {
+          name: e?.name,
+          message: e?.message,
+        });
+      }
+
+      return convoObject;
     } catch (error) {
       logger.error('[saveConvo] Error saving conversation', error);
       if (metadata && metadata?.context) {
@@ -137,8 +180,9 @@ module.exports = {
       return { message: 'Error saving conversation' };
     }
   },
-  bulkSaveConvos: async (conversations) => {
+  bulkSaveConvos: async (conversations, models) => {
     try {
+      const Conversation = models?.Conversation || GlobalConversation;
       const bulkOps = conversations.map((convo) => ({
         updateOne: {
           filter: { conversationId: convo.conversationId, user: convo.user },
@@ -157,8 +201,10 @@ module.exports = {
   },
   getConvosByCursor: async (
     user,
-    { cursor, limit = 25, isArchived = false, tags, search, order = 'desc' } = {},
+    { cursor, limit = 25, isArchived = false, tags, search, order = 'desc', tenantId } = {},
+    models,
   ) => {
+    const Conversation = models?.Conversation || GlobalConversation;
     const filters = [{ user }];
     if (isArchived) {
       filters.push({ isArchived: true });
@@ -174,7 +220,12 @@ module.exports = {
 
     if (search) {
       try {
-        const meiliResults = await Conversation.meiliSearch(search, { filter: `user = "${user}"` });
+        // Use tenant-specific Meilisearch index
+        const { searchConvos } = require('~/server/services/Meilisearch/tenantMeiliService');
+        if (!tenantId) {
+          throw new Error('Tenant ID required for conversation search');
+        }
+        const meiliResults = await searchConvos({ tenantId, userId: user, query: search });
         const matchingIds = Array.isArray(meiliResults.hits)
           ? meiliResults.hits.map((result) => result.conversationId)
           : [];
@@ -184,6 +235,17 @@ module.exports = {
         filters.push({ conversationId: { $in: matchingIds } });
       } catch (error) {
         logger.error('[getConvosByCursor] Error during meiliSearch', error);
+        if (process.env.MT_E2E_INTERNAL_ROUTES === '1') {
+          return {
+            message: 'Error during meiliSearch',
+            debug: {
+              name: error?.name,
+              message: error?.message,
+              code: error?.code,
+              type: error?.type,
+            },
+          };
+        }
         return { message: 'Error during meiliSearch' };
       }
     }
@@ -215,8 +277,9 @@ module.exports = {
       return { message: 'Error getting conversations' };
     }
   },
-  getConvosQueried: async (user, convoIds, cursor = null, limit = 25) => {
+  getConvosQueried: async (user, convoIds, cursor = null, limit = 25, models) => {
     try {
+      const Conversation = models?.Conversation || GlobalConversation;
       if (!convoIds?.length) {
         return { conversations: [], nextCursor: null, convoMap: {} };
       }
@@ -257,9 +320,9 @@ module.exports = {
   },
   getConvo,
   /* chore: this method is not properly error handled */
-  getConvoTitle: async (user, conversationId) => {
+  getConvoTitle: async (user, conversationId, models) => {
     try {
-      const convo = await getConvo(user, conversationId);
+      const convo = await getConvo(user, conversationId, models);
       /* ChatGPT Browser was triggering error here due to convo being saved later */
       if (convo && !convo.title) {
         return null;
@@ -289,8 +352,9 @@ module.exports = {
    * const result = await deleteConvos(user, filter);
    * logger.error(result); // { n: 5, ok: 1, deletedCount: 5, messages: { n: 10, ok: 1, deletedCount: 10 } }
    */
-  deleteConvos: async (user, filter) => {
+  deleteConvos: async (user, filter, models) => {
     try {
+      const Conversation = models?.Conversation || GlobalConversation;
       const userFilter = { ...filter, user };
       const conversations = await Conversation.find(userFilter).select('conversationId');
       const conversationIds = conversations.map((c) => c.conversationId);
@@ -301,9 +365,12 @@ module.exports = {
 
       const deleteConvoResult = await Conversation.deleteMany(userFilter);
 
-      const deleteMessagesResult = await deleteMessages({
-        conversationId: { $in: conversationIds },
-      });
+      const deleteMessagesResult = await deleteMessages(
+        {
+          conversationId: { $in: conversationIds },
+        },
+        models,
+      );
 
       return { ...deleteConvoResult, messages: deleteMessagesResult };
     } catch (error) {

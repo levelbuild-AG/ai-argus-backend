@@ -8,6 +8,16 @@ const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
   throw new Error('Please define the MONGO_URI environment variable');
 }
+
+/**
+ * System Database URI (HC-2: System DB vs Tenant DB separation)
+ * 
+ * - If SYSTEM_MONGO_URI is set, system DB uses it (for Users, Tenants, Sessions, etc.)
+ * - If not set, system DB falls back to MONGO_URI (backward compatible)
+ * - Tenant DB URIs come from Tenant.dbUri (per tenant)
+ * - Legacy tenant uses MONGO_URI (same as system DB fallback, but separate connection object)
+ */
+const SYSTEM_MONGO_URI = process.env.SYSTEM_MONGO_URI || MONGO_URI;
 /** The maximum number of connections in the connection pool. */
 const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL_SIZE) || undefined;
 /** The minimum number of connections in the connection pool. */
@@ -64,8 +74,10 @@ async function connectDb() {
     };
     logger.info('Mongo Connection options');
     logger.info(JSON.stringify(opts, null, 2));
+    logger.info(`System DB URI: ${SYSTEM_MONGO_URI === MONGO_URI ? 'MONGO_URI (fallback)' : 'SYSTEM_MONGO_URI'}`);
     mongoose.set('strictQuery', true);
-    cached.promise = mongoose.connect(MONGO_URI, opts).then((mongoose) => {
+    // System DB connection uses SYSTEM_MONGO_URI (or MONGO_URI fallback)
+    cached.promise = mongoose.connect(SYSTEM_MONGO_URI, opts).then((mongoose) => {
       return mongoose;
     });
   }
@@ -74,6 +86,15 @@ async function connectDb() {
   return cached.conn;
 }
 
+/**
+ * Get the system database URI (for reference, not for direct connection)
+ * Tenant connections are created separately via TenantConnectionManager
+ */
+function getSystemDbUri() {
+  return SYSTEM_MONGO_URI;
+}
+
 module.exports = {
   connectDb,
+  getSystemDbUri,
 };

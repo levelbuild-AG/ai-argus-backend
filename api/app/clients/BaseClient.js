@@ -20,6 +20,7 @@ const {
   supportsBalanceCheck,
 } = require('librechat-data-provider');
 const { getMessages, saveMessage, updateMessage, saveConvo, getConvo } = require('~/models');
+const { getTenantModels } = require('~/db/tenantHelpers');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { checkBalance } = require('~/models/balanceMethods');
 const { truncateToolCallOutputs } = require('./prompts');
@@ -876,7 +877,15 @@ class BaseClient {
   async loadHistory(conversationId, parentMessageId = null) {
     logger.debug('[BaseClient] Loading history:', { conversationId, parentMessageId });
 
-    const messages = (await getMessages({ conversationId })) ?? [];
+    const models = await getTenantModels().catch((err) => {
+      logger.error(
+        '[BaseClient] Failed to resolve tenant models for loadHistory; defaulting to system models',
+        err,
+      );
+      return undefined;
+    });
+
+    const messages = (await getMessages({ conversationId }, undefined, models)) ?? [];
 
     if (messages.length === 0) {
       return [];
@@ -931,6 +940,14 @@ class BaseClient {
       throw new Error('User mismatch.');
     }
 
+    const models = await getTenantModels().catch((err) => {
+      logger.error(
+        '[BaseClient] Failed to resolve tenant models; defaulting to system models',
+        err,
+      );
+      return undefined;
+    });
+
     const savedMessage = await saveMessage(
       this.options?.req,
       {
@@ -940,6 +957,7 @@ class BaseClient {
         user,
       },
       { context: 'api/app/clients/BaseClient.js - saveMessageToDatabase #saveMessage' },
+      models,
     );
 
     if (this.skipSaveConvo) {
@@ -956,7 +974,7 @@ class BaseClient {
     const existingConvo =
       this.fetchedConvo === true
         ? null
-        : await getConvo(this.options?.req?.user?.id, message.conversationId);
+        : await getConvo(this.options?.req?.user?.id, message.conversationId, models);
 
     const unsetFields = {};
     const exceptions = new Set(['spec', 'iconURL']);
@@ -976,10 +994,15 @@ class BaseClient {
       }
     }
 
-    const conversation = await saveConvo(this.options?.req, fieldsToKeep, {
-      context: 'api/app/clients/BaseClient.js - saveMessageToDatabase #saveConvo',
-      unsetFields,
-    });
+    const conversation = await saveConvo(
+      this.options?.req,
+      fieldsToKeep,
+      {
+        context: 'api/app/clients/BaseClient.js - saveMessageToDatabase #saveConvo',
+        unsetFields,
+      },
+      models,
+    );
 
     return { message: savedMessage, conversation };
   }
@@ -989,7 +1012,19 @@ class BaseClient {
    * @param {Partial<TMessage>} message
    */
   async updateMessageInDatabase(message) {
-    await updateMessage(this.options.req, message);
+    const models = await getTenantModels().catch((err) => {
+      logger.error(
+        '[BaseClient] Failed to resolve tenant models for updateMessageInDatabase; defaulting to system models',
+        err,
+      );
+      return undefined;
+    });
+    await updateMessage(
+      this.options.req,
+      message,
+      { context: 'api/app/clients/BaseClient.js - updateMessageInDatabase' },
+      models,
+    );
   }
 
   /**

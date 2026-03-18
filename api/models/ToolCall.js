@@ -1,4 +1,4 @@
-const { ToolCall } = require('~/db/models');
+const { ToolCall: GlobalToolCall } = require('~/db/models');
 
 /**
  * Create a new tool call
@@ -74,8 +74,9 @@ async function updateToolCall(id, updateData) {
  * @param {string} [conversationId] - The tool call conversation ID
  * @returns {Promise<{ ok?: number; n?: number; deletedCount?: number }>} The result of the delete operation
  */
-async function deleteToolCalls(userId, conversationId) {
+async function deleteToolCalls(userId, conversationId, models) {
   try {
+    const ToolCall = models?.ToolCall || GlobalToolCall;
     const query = { user: userId };
     if (conversationId) {
       query.conversationId = conversationId;
